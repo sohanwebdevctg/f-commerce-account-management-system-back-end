@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Environment Variables (খুবই জরুরি, পাসওয়ার্ড ও সিক্রেট কি থাকে)
+.env
+.env.local
+.env.*.local
+
+# Build files
+dist/
+build/
+
+# Database / Prisma generated files (অপ্রয়োজনীয়)
+*.db
+*.sqlite
+
+# Logs & System files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+
+# AI Assistant Folders
+.agents/
+.claude/
+.cursor/
+.devin/
