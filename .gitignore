@@ -25,3 +25,7 @@ yarn-error.log*
 .claude/
 .cursor/
 .devin/
+
+# Image Controlling File and Folder
+public/uploads/*
+!public/uploads/.gitkeep

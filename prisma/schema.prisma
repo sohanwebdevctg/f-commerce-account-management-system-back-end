@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-
 }
 
 
@@ -35,6 +34,14 @@ enum CustomerType {
   REGULAR    // সাধারণ ক্রেতা
   VIP        // নিয়মিত কেনাকাটা করা বিশেষ কাস্টমার
   FRAUD_RISK // ভুয়া অর্ডার দেওয়া বা পার্সেল রিটার্ন করা সন্দেহভাজন কাস্টমার
+}
+
+// ===================== Category ==========================
+
+// প্রোডাক্টের স্ট্যাটাস (ACTIVE নাকি INACTIVE)
+enum CategoryStatus {
+  ACTIVE
+  INACTIVE
 }
 
 // ===================== Product ==========================
@@ -89,6 +96,10 @@ model User{
   role Role @default(STAFF) // বাই-ডিফল্ট ইউজারের পদবী থাকবে STAFF
   status UserStatus @default(PENDING) // বাই-ডিফল্ট নতুন অ্যাকাউন্ট PENDING থাকবে
 
+  // Soft Delete & Data Persistence (সফট ডিলিট, ট্র্যাশ ও রিস্টোর লজিকের জন্য)
+  isDeleted Boolean @default(false) // ইউজারকে ডিলিট না করেও ডিলিট এর মত রাখা
+  deletedAt DateTime? // কখন ডিলিট করা হয়েছিল
+
   // category relation (ইউজার কোন ক্যাটাগরিগুলো তৈরি করেছে)
   categories Category[]
 
@@ -137,6 +148,11 @@ model Category{
   name String @unique @db.VarChar(60) // ক্যাটাগরির নাম (ইউনিক হতে হবে, যেমন: "Mens Fashion")
   description String? @db.Text // ক্যাটাগরির বিবরণ (অপশনাল)
 
+  // অন/অফ (Status) এবং Soft Delete ফিল্ড
+  status CategoryStatus @default(ACTIVE) // ক্যাটাগরি একটিভ নাকি ইন-একটিভ (ACTIVE/INACTIVE)
+  isDeleted Boolean @default(false) // সফট ডিলিটের জন্য ট্র্যাকিং (true হলে ডিলিটেড)
+  deletedAt DateTime? // কখন ডিলিট করা হয়েছিল
+
   // ইউজার ট্র্যাকিং রিলেশন (কে এই ক্যাটাগরি তৈরি করেছে)
   createdById String // যে ইউজার তৈরি করেছে তার আইডি
   createdBy User @relation(fields: [createdById], references: [id]) // User মডেলের সাথে রিলেশন
@@ -150,15 +166,24 @@ model Category{
   @@map("categories") // ডাটাবেজে টেবিলটির নাম হবে "categories"
 }
 
+
+
 // ================= Product Model =================
 
 // প্রোডাক্ট মডেল (মূল প্রোডাক্টের সাধারণ তথ্য রাখার জন্য)
 model Product{
   id String @id @default(uuid()) // প্রোডাক্টের ইউনিক আইডি
+  thumbnailImage String @db.Text // প্রোডাক্টের থাম্নেল ইমেজ
   name String @db.VarChar(150) // প্রোডাক্টের নাম
-  title String? @db.VarChar(255) // প্রোডাক্টের টাইটেল (অপশনাল)
+  shortDescription String? @db.VarChar(255) // প্রোডাক্টের শর্ট ডেসক্রিপশন (অপশনাল)
   description String? @db.Text // প্রোডাক্টের বিবরণ (অপশনাল)
+  brand String? @db.VarChar(50) // প্রোডাক্টের ব্র্যান্ড নেই
   productType ProductType @default(SINGLE) //প্রোডাক্টটি কোন ধরনের প্রোডাক্ট তা নির্ধারণ
+
+  // --- স্ট্যাটাস এবং সফ্ট ডিলিট ট্র্যাকিং (Soft Delete) ---
+  isActive Boolean @default(true) // প্রোডাক্ট চালু (true) না বন্ধ (false)
+  isDeleted Boolean @default(false) // সফ্ট ডিলিট করা হয়েছে কিনা
+  deletedAt DateTime? // সফ্ট ডিলিট করার সময়কাল
 
   // ক্যাটাগরি-র সাথে রিলেশন
   categoryId String // প্রোডাক্টটি কোন ক্যাটাগরির তার আইডি
@@ -171,6 +196,9 @@ model Product{
   // User (Updated By)-র সাথে রিলেশন
   updatedById String? // শেষ যে ইউজার আপডেট করেছে তার আইডি (অপশনাল)
   updatedBy User? @relation("UpdatedProducts", fields: [updatedById], references: [id]) // User মডেলের সাথে রিলেশন
+
+  // color relation
+  colors ProductColor[]
 
   // variant relation (এই প্রোডাক্টের ভ্যারিয়েন্টগুলোর লিস্ট)
   variants ProductVariant[]
@@ -185,36 +213,28 @@ model Product{
 
 }
 
-// ================= ProductVariant Model =================
+// ================= ProductColor Model =================
 
-// প্রোডাক্ট ভ্যারিয়েন্ট মডেল (সাইজ ও স্টক হ্যান্ডেল করার জন্য)
-model ProductVariant{
-  id String @id @default(uuid()) // ভ্যারিয়েন্টের ইউনিক আইডি
+// প্রোডাক্ট কালার মডেল (একটি প্রোডাক্টের কি কি কালার আছে)
+model ProductColor{
+  id String @id @default(uuid()) // কালারের ইউনিক আইডি
+  colorCode String @db.VarChar(50) // কালারের কালার কোড (যেমন: "#FF0000") (অপশনাল)
 
-  // Product-এর সাথে রিলেশন (কোন প্রোডাক্টের ভ্যারিয়েন্ট এটি?)
-  productId String // প্রোডাক্টের আইডি
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade) // product মডেলের সাথে রিলেশন
-  // নোট (onDelete: Cascade কেন দেওয়া হলো?): যদি কখনো অ্যাডমিন ড্যাশবোর্ড থেকে একটি প্রোডাক্ট ডিলিট বা মুছে দেয়, তবে ডাটাবেজ যেন স্বয়ংক্রিয়ভাবে ওই প্রোডাক্টের ছবিগুলোর রেকর্ডও মুছে ফেলে। এতে ডাটাবেজে আবর্জনা জামা হয়ে থাকে না।
+// Product-এর সাথে রিলেশন (কোন প্রোডাক্টের কালার এটি?)
+  productId String
+  product  Product @relation(fields: [productId], references: [id], onDelete: Cascade) 
+  // নোট: মূল প্রোডাক্ট ডিলিট হলে স্বয়ংক্রিয়ভাবে ওই প্রোডাক্টের সব কালার রেকর্ড মুছে যাবে।
 
-  size String? @db.VarChar(20) // প্রোডাক্টের সাইজ (যেমন: "S", "M", "L", "XL") (অপশনাল)
+  // চাইল্ড রিলেশনস
+  images  ProductImage[]   // এই কালারের ছবিগুলোর লিস্ট
+  variants ProductVariant[] // এই কালারের আন্ডারে থাকা সাইজ/স্টকসমূহের লিস্ট
 
-  costPrice Decimal @db.Decimal(10,2) // প্রোডাক্টের কেনা দাম (যেমন: ৫০০.০০)
-  sellPrice Decimal @db.Decimal(10,2) // প্রোডাক্টের বিক্রয় মূল্য (যেমন: ৮৫০.০০)
-  stock Int @default(0) // এই সাইজ/কালারের স্টক সংখ্যা (বাই-ডিফল্ট 0)
+  createdAt DateTime @default(now()) // কালার এন্ট্রি করার সময়
 
-  // ইমেজ মডেলের সাথে রিলেশন (অ্যারে/লিস্ট আকারে)
-  images ProductImage[]
-  // কালার মডেলের সাথে রিলেশন (অ্যারে/লিস্ট আকারে)
-  colors ProductColor[]
-  // order item relation (এই সাইজ/ভ্যারিয়েন্টটি কোন কোন অর্ডারে কেনা হয়েছে)
-  orderItems OrderItem[]
+  // একই প্রোডাক্টের আন্ডারে একই কালারের নাম দুইবার এন্ট্রি হবে না
+  @@unique([productId, colorCode])
 
-  createdAt DateTime @default(now()) // এন্ট্রি করার সময়
-  updatedAt DateTime @updatedAt // শেষ কখন আপডেট হলো
-
-  // productId, এবং size—এই 2টির কম্বিনেশন ইউনিক হতে হবে (যাতে একই প্রোডাক্টের একই সাইজ দুইবার এন্ট্রি না হয়) 
-  @@unique([productId, size])
-  @@map("product_variants") // ডাটাবেজে টেবিলটির নাম হবে "product_variants"
+  @@map("product_colors") // ডাটাবেজে টেবিলটির নাম হবে "product_colors"
 }
 
 // ================= ProductImage Model =================
@@ -222,12 +242,15 @@ model ProductVariant{
 // প্রোডাক্ট ইমেজ মডেল (প্রোডাক্টের ছবির ইউআরএল রাখার জন্য)
 model ProductImage{
   id String @id @default(uuid()) // ছবির ইউনিক আইডি
-  url String @db.Text // ছবির লিংক URL
+  productImage String @db.Text // ছবির লিংক URL
 
-  // variant-এর সাথে রিলেশন (কোন ভ্যারিয়েন্ট ছবি এটি?)
-  variantId String // ভ্যারিয়েন্ট আইডি
-  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade) // variant মডেলের সাথে রিলেশন
-  // নোট (onDelete: Cascade কেন দেওয়া হলো?): যদি কখনো অ্যাডমিন ড্যাশবোর্ড থেকে একটি ভ্যারিয়েন্ট ডিলিট বা মুছে দেয়, তবে ডাটাবেজ যেন স্বয়ংক্রিয়ভাবে ওই ভ্যারিয়েন্ট ছবিগুলোর রেকর্ডও মুছে ফেলে। এতে ডাটাবেজে আবর্জনা জামা হয়ে থাকে না।
+  // ProductColor-এর সাথে অপশনাল রিলেশন (কালার অনুযায়ী ছবির জন্য)
+  colorId String?
+  color ProductColor? @relation(fields: [colorId], references: [id], onDelete: Cascade)
+
+  // ProductVariant-এর সাথে অপশনাল রিলেশন (কালারহীন সাইজ/ভ্যারিয়েন্ট অনুযায়ী ছবির জন্য)
+  variantId String?
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now()) // ইমেজ এন্ট্রি করার সময়
 
@@ -235,29 +258,51 @@ model ProductImage{
 
 }
 
-// ================= ProductColor Model =================
 
-// প্রোডাক্ট কালার মডেল (একটি প্রোডাক্টের কি কি কালার আছে)
-model ProductColor{
-  id String @id @default(uuid()) // কালারের ইউনিক আইডি
-  colorName String? @db.VarChar(50) // কালারের নাম (যেমন: "Red" বা "Black") (অপশনাল)
-  colorCode String? @db.VarChar(50) // কালারের কালার কোড (যেমন: "#FF0000") (অপশনাল)
+// ================= ProductVariant Model =================
 
-  // variant-এর সাথে রিলেশন (কোন ভ্যারিয়েন্ট ছবি এটি?)
-  variantId String // ভ্যারিয়েন্ট আইডি
-  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade) // variant মডেলের সাথে রিলেশন
-  // নোট (onDelete: Cascade কেন দেওয়া হলো?): যদি কখনো অ্যাডমিন ড্যাশবোর্ড থেকে একটি ভ্যারিয়েন্ট ডিলিট বা মুছে দেয়, তবে ডাটাবেজ যেন স্বয়ংক্রিয়ভাবে ওই ভ্যারিয়েন্ট ছবিগুলোর রেকর্ডও মুছে ফেলে। এতে ডাটাবেজে আবর্জনা জামা হয়ে থাকে না।
+// প্রোডাক্ট ভ্যারিয়েন্ট মডেল (সাইজ ও স্টক হ্যান্ডেল করার জন্য)
+model ProductVariant{
+  id String @id @default(uuid()) // ভ্যারিয়েন্টের ইউনিক আইডি
 
-  createdAt DateTime @default(now()) // কালার এন্ট্রি করার সময়
+  costPrice Decimal @db.Decimal(10,2) // প্রোডাক্টের কেনা দাম (যেমন: ৫০০.০০)
+  minimumPrice Decimal? @db.Decimal(10,2) // সর্বোচ্চ কয় টাকায় বিক্রি করতে চায়
+  maximumPrice Decimal? @db.Decimal(10,2) // সর্বনিম্ন কয় টাকায় বিক্রি করতে চায়
+  sellPrice Decimal @db.Decimal(10,2) // প্রোডাক্টের বিক্রয় মূল্য (যেমন: ৮৫০.০০)
+  profit Decimal? @db.Decimal(10, 2) // লাভ / প্রফিট
+  size String? @db.VarChar(20) // প্রোডাক্টের সাইজ (যেমন: "S", "M", "L", "XL") (অপশনাল)
+  stock Int @default(0) // এই সাইজ/কালারের স্টক সংখ্যা (বাই-ডিফল্ট 0)
+  vatPercent Decimal? @default(0) @db.Decimal(5, 2) // ভ্যাট শতাংশ (%)
+  discountPercent Decimal? @default(0) @db.Decimal(5, 2) // ছাড়/ডিসকাউন্ট শতাংশ (%)
+  varientName String? @db.VarChar(100) // আচ্ছা এখানে অটোমেটিক প্রোডাক্ট এর নামের সাথে মিল রেখে একটা বেরি এন্ড নেম হবে
+  // --- স্ট্যাটাস এবং সফ্ট ডিলিট ট্র্যাকিং (Soft Delete) ---
+  isActive Boolean @default(true) // এই ভেরিয়েন্টটি চালু (true) না বন্ধ (false)
+  isDeleted Boolean @default(false) // সফ্ট ডিলিট করা হয়েছে কিনা
+  deletedAt DateTime? // সফ্ট ডিলিট করার সময়কাল
 
-  // একই ভ্যারিয়েন্টের আন্ডারে একই কালারের নাম দুইবার ঢুকবে না
-  @@unique([variantId, colorName])
+  // Product-এর সাথে রিলেশন (কোন প্রোডাক্টের ভ্যারিয়েন্ট এটি?)
+  productId String // প্রোডাক্টের আইডি
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade) // product মডেলের সাথে রিলেশন
+  // নোট (onDelete: Cascade কেন দেওয়া হলো?): যদি কখনো অ্যাডমিন ড্যাশবোর্ড থেকে একটি প্রোডাক্ট ডিলিট বা মুছে দেয়, তবে ডাটাবেজ যেন স্বয়ংক্রিয়ভাবে ওই প্রোডাক্টের ছবিগুলোর রেকর্ডও মুছে ফেলে। এতে ডাটাবেজে আবর্জনা জামা হয়ে থাকে না।
 
-  // একই ভ্যারিয়েন্টের আন্ডারে একই কালার কোড দুইবার ঢুকবে না
-  @@unique([variantId, colorCode])
+  // Color-এর সাথে রিলেশন
+  colorId String?
+  color ProductColor? @relation(fields: [colorId], references: [id], onDelete: Cascade)
 
-  @@map("product_colors") // ডাটাবেজে টেবিলটির নাম হবে "product_colors"
+  // ইমেজ মডেলের সাথে রিলেশন (অ্যারে/লিস্ট আকারে)
+  images ProductImage[]
+
+  // order item relation (এই সাইজ/ভ্যারিয়েন্টটি কোন কোন অর্ডারে কেনা হয়েছে)
+  orderItems OrderItem[]
+
+  createdAt DateTime @default(now()) // এন্ট্রি করার সময়
+  updatedAt DateTime @updatedAt // শেষ কখন আপডেট হলো
+
+  // একই প্রোডাক্টের অধীনে একই কালার এবং একই সাইজ ২ বার ঢুকবে না
+  @@unique([productId, size, colorId])
+  @@map("product_variants") // ডাটাবেজে টেবিলটির নাম হবে "product_variants"
 }
+
 
 // ================= Transaction Model =================
 
@@ -286,25 +331,25 @@ model Transaction{
 
 // অর্ডার মডেল (কাস্টমারের কেনাকাটার মূল তথ্য রাখার জন্য)
 model Order{
-  id   String @id @default(uuid())  // অর্ডারের ইউনিক আইডি
+  id String @id @default(uuid())  // অর্ডারের ইউনিক আইডি
   invoiceNo String @unique @db.VarChar(50) // ইউনিক ইনভয়েস নম্বর (যেমন: INV-1001)
 
   // Customer-এর সাথে রিলেশন (কোন কাস্টমারের অর্ডার এটি)
   customerId String                        // কাস্টমারের আইডি
-  customer  Customer @relation(fields: [customerId], references: [id]) // Customer মডেলের সাথে রিলেশন
+  customer Customer @relation(fields: [customerId], references: [id]) // Customer মডেলের সাথে রিলেশন
 
   // টাকার হিসাব-নিকাশ
-  subTotal  Decimal @db.Decimal(10, 2)   // প্রোডাক্টগুলোর মোট দাম
-  discount  Decimal @default(0) @db.Decimal(10, 2) // ছাড়/ডিসকাউন্ট
+  subTotal Decimal @db.Decimal(10, 2)   // প্রোডাক্টগুলোর মোট দাম
+  discount Decimal @default(0) @db.Decimal(10, 2) // ছাড়/ডিসকাউন্ট
   deliveryCharge Decimal @default(0) @db.Decimal(10, 2) // ডেলিভারি চার্জ
   totalAmount Decimal @db.Decimal(10, 2)  // সর্বমোট বিল (subTotal - discount + deliveryCharge)
-  paidAmount  Decimal @default(0) @db.Decimal(10, 2) // কত টাকা অ্যাডভান্স/পেমেন্ট করেছে
-  dueAmount  Decimal @default(0) @db.Decimal(10, 2) // কত টাকা বাকি আছে
+  paidAmount Decimal @default(0) @db.Decimal(10, 2) // কত টাকা অ্যাডভান্স/পেমেন্ট করেছে
+  dueAmount Decimal @default(0) @db.Decimal(10, 2) // কত টাকা বাকি আছে
 
   // স্ট্যাটাস ও নোট
-  status  OrderStatus  @default(PENDING) // অর্ডারের ডেলিভারি স্ট্যাটাস
+  status OrderStatus  @default(PENDING) // অর্ডারের ডেলিভারি স্ট্যাটাস
   paymentStatus PaymentStatus @default(UNPAID)  // পেমেন্ট স্ট্যাটাস
-  note  String?  @db.Text  // কোনো বিশেষ নোট বা কাস্টমারের চাওয়া (অপশনাল)
+  note String? @db.Text  // কোনো বিশেষ নোট বা কাস্টমারের চাওয়া (অপশনাল)
 
   // User (Created By)-র সাথে রিলেশন (কোন স্টাফ ড্যাশবোর্ড থেকে অর্ডারটি তৈরি করেছে)
   createdById String?  // যে স্টাফ এন্ট্রি করেছে তার আইডি (অপশনাল, কারণ ওয়েবসাইট থেকেও হতে পারে)
@@ -330,7 +375,7 @@ model OrderItem{
 
   // Order-এর সাথে রিলেশন (কোন অর্ডারের প্রোডাক্ট এটি?)
   orderId String  // অর্ডারের আইডি
-  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade) // Order ডিলিট হলে আইটেমও ডিলিট হবে
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade) // Order ডিলিট হলে আইটেমও ডিলিট হবে
 
   // Product-এর সাথে রিলেশন (কোন প্রোডাক্টটি কেনা হয়েছে?)
   productId String // প্রোডাক্টের আইডি
@@ -341,8 +386,8 @@ model OrderItem{
   variant ProductVariant? @relation(fields: [variantId], references: [id]) // ProductVariant মডেলের সাথে রিলেশন
 
   // দাম ও পরিমাণের হিসাব
-  unitPrice  Decimal @db.Decimal(10, 2) // অর্ডার করার সময় প্রতি পিসের বিক্রয় মূল্য
-  quantity  Int  @default(1)  // কত পিস কেনা হয়েছে (বাই-ডিফল্ট ১)
+  unitPrice Decimal @db.Decimal(10, 2) // অর্ডার করার সময় প্রতি পিসের বিক্রয় মূল্য
+  quantity Int @default(1)  // কত পিস কেনা হয়েছে (বাই-ডিফল্ট ১)
   totalPrice Decimal @db.Decimal(10, 2) // সর্বমোট দাম (unitPrice * quantity)
 
   createdAt DateTime @default(now())  // এন্ট্রি করার সময়
