@@ -73,10 +73,11 @@ export const getAllUsersService = async (query: IGetAllUsersQuery) => {
   };
 
   // Search logic (Name or Email)
-  if(searchTerm){
+  if (searchTerm) {
+    const cleanedSearchTerm = searchTerm.trim();
     whereCondition.OR = [
-      { name: { contains: searchTerm, mode: 'insensitive' } },
-      { email: { contains: searchTerm, mode: 'insensitive' } },
+      { name: { contains: cleanedSearchTerm, mode: 'insensitive' } },
+      { email: { contains: cleanedSearchTerm, mode: 'insensitive' } },
     ];
   };
 
@@ -105,7 +106,7 @@ export const getAllUsersService = async (query: IGetAllUsersQuery) => {
   });
 
   return users;
-}
+};
 
 // getUserByIdService (Service to retrieve detailed data for a single user using an ID)
 export const getUserByIdService = async (id: string) => {

@@ -77,11 +77,12 @@ export const getAllCategoriesService = async (query: IGetAllCategoriesQuery) => 
   }
 
   // Search logic (Category Name)
-  if (searchTerm) {
-    whereCondition.OR = [
-      { name: { contains: searchTerm, mode: 'insensitive' } },
-    ];
-  }
+if (searchTerm) {
+  const cleanedSearchTerm = searchTerm.trim();
+  whereCondition.OR = [
+    { name: { contains: cleanedSearchTerm, mode: 'insensitive' } },
+  ];
+}
 
   // Retrieving categories along with products count
   const categories = await prisma.category.findMany({
