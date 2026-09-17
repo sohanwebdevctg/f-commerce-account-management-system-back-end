@@ -9,7 +9,7 @@ const router = Router();
 router.post('/', auth('ADMIN'), createUser); // post/api/v1/users
 router.get('/', auth('ADMIN', 'MODERATOR'), getAllUsers); // get/api/v1/users
 router.get("/profile", auth("ADMIN", "MODERATOR", "STAFF"), getUserProfile); // get/api/v1/users/profile
-router.patch("/profile", auth("ADMIN", "MODERATOR", "STAFF"), upload.single("profileImage"), updateUserProfile); // get/api/v1/users/profile
+router.patch("/profile", auth("ADMIN", "MODERATOR", "STAFF"), upload.single("profileImage"), updateUserProfile); // patch/api/v1/users/profile
 router.get('/:id', auth('ADMIN', 'MODERATOR'), getUserById); // get/api/v1/users/:id
 router.patch('/:id/role', auth('ADMIN'), updateUserRole) // patch/api/v1/users/:id/role
 router.patch("/:id/status",auth("ADMIN", "MODERATOR"), updateUserStatus); // patch/api/v1/users/:id/status
