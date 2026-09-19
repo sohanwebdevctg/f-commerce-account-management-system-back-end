@@ -36,5 +36,4 @@ router.patch("/variants/:variantId/restore", auth("ADMIN", "MODERATOR"),restoreV
 
 
 
-
 export const ProductRoutes = router;
