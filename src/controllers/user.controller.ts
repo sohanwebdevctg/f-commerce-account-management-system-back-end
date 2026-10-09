@@ -1,239 +1,406 @@
 import { Request, Response } from "express";
-import { createUserService, getAllUsersService, getUserByIdService, getUserProfileService, restoreUserService, softDeleteUserService, updateUserProfileService, updateUserRoleService, updateUserStatusService } from "../services/user.service";
-
+import { createUserService, deleteUserService, getAllUserService, getSingleUserService, getUserProfileService, restoreUserService, updateUserProfileService, updateUserRoleService, updateUserStatusService } from "../services/user.service";
+import fs from "fs";
+import path from "path";
 
 // createUser
 export const createUser = async (req: Request, res: Response): Promise<void> => {
   try{
 
-    const {email, password, role, status} = req.body;
+    // get user information from request body
+    const {name, email, password,role, status} = req.body;
 
-    // check email and password
+    // Check if required fields exist
     if(!email || !password){
       res.status(400).json({
-        success: false,
-        message: 'Email and password are required!',
-      });
-      return;
+      success: false,
+      message: 'email and password are required!',
+      statusCode: 400,
+      data: null
+    });
+    return;
     }
 
     // Strong Password Validation Check (Regex)
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/;
 
     if(!passwordRegex.test(password)){
       res.status(400).json({
-      success: false,
-      message:'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&).',
+        success: false,
+        statusCode: 400,
+        message: 'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&).',
+        data: null
       });
       return;
     }
 
-    // Saving to the database by making a service call
-    const result = await createUserService({ email, password, role, status });
+    // create user service
+    const result = await createUserService({name,email,password,role,status});
 
-    // Final success response
     res.status(201).json({
       success: true,
-      message: 'User created successfully!',
-      data: result,
-    });
-    return;
-
-  }catch(error:any){
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Something went wrong!',
-    });
-    return;
-  }
-};
-
-// getAllUsers
-export const getAllUsers = async (req: Request, res: Response): Promise<void> => {
-
-  try{
-
-    // Receiving isDeleted and searchTerm from (req.query)
-    const filters = {
-      isDeleted: req.query.isDeleted as string | undefined,
-      searchTerm: req.query.searchTerm as string | undefined,
-    };
-
-    const result = await getAllUsersService(filters);
-
-    res.status(200).json({
-      success: true,
-      message: 'Users retrieved successfully!',
-      data: result,
+      message: 'User Created Successfully',
+      statusCode: 201,
+      data: result
     });
     return;
 
   }catch(error: any){
     res.status(500).json({
       success: false,
-      message: error.message || 'Failed to fetch users!',
+      message: error.message || 'Something went wrong',
+      statusCode: 500,
+      data: null
     });
     return;
   }
+}
 
-};
+// getAllUsers
+export const getAllUsers = async (req: Request, res: Response):Promise<void> => {
+  try{
 
-// getUserById
-export const getUserById = async (req: Request, res: Response): Promise<void> => {
+    // Retrieving parameters from the URL query
+    const isDeleted = req.query.isDeleted === 'true';
+    const searchTerm = req.query.searchTerm as string | undefined;
+
+    // Sending data to the service layer for processing
+    const result = await getAllUserService({isDeleted, searchTerm});
+
+    // Sending a successful response to the client
+    res.status(200).json({
+      success: true,
+      message: 'Users retrieved successfully',
+      statusCode: 200,
+      data: result
+    });
+    return;
+
+  }catch(error: any){
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Something went wrong',
+      statusCode: 500,
+      data: null
+    });
+    return;
+  }
+}
+
+// get user profile
+export const getUserProfile = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params; // params id
-    const result = await getUserByIdService(id as string);
+    // Data has been passed to req.user from the auth middleware.
+    const loggedInUser = (req as any).user;
+
+    if (!loggedInUser?.id) {
+      res.status(401).json({
+        success: false,
+        message: "Unauthorized access!",
+        statusCode: 401,
+        data: null,
+      });
+      return;
+    }
+
+    const result = await getUserProfileService(loggedInUser.id);
+
+    if (!result) {
+      res.status(404).json({
+        success: false,
+        message: "User profile not found!",
+        statusCode: 404,
+        data: null,
+      });
+      return;
+    }
 
     res.status(200).json({
       success: true,
-      message: 'User profile retrieved successfully!',
+      message: "Profile fetched successfully",
+      statusCode: 200,
       data: result,
     });
     return;
   } catch (error: any) {
-    res.status(404).json({
+    res.status(500).json({
       success: false,
-      message: error.message || 'User not found!',
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
+    });
+    return;
+  }
+};
+
+
+// updateUserProfile Controller (Testing Step)
+export const updateUserProfile = async (req: Request, res: Response): Promise<void> => {
+  const file = (req as any).file;
+  try {
+    const userId = (req as any).user?.id;
+    const { name, email, password } = req.body;
+
+    // Password Regex Check (If the user sends a new password)
+    if (password) {
+      const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!\%*?&#]{8,}$/;
+
+      if (!passwordRegex.test(password)) {
+        if (file) {
+          const uploadedFilePath = path.join(__dirname, "../../public/uploads", file.filename);
+          if (fs.existsSync(uploadedFilePath)) {
+            fs.unlinkSync(uploadedFilePath);
+          }
+        }
+
+        res.status(400).json({
+          success: false,
+          statusCode: 400,
+          message: 'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&).',
+          data: null
+        });
+        return;
+      }
+    }
+
+    const payload = {
+      name,
+      email,
+      password: password || undefined,
+      profileImage: file ? `/uploads/${file.filename}` : undefined,
+    };
+
+    // Call Service
+    const result = await updateUserProfileService(userId, payload);
+
+    res.status(200).json({
+      success: true,
+      message: 'User Profile Updated Successfully',
+      statusCode: 200,
+      data: result
+    });
+    return;
+
+  } catch (error: any) {
+
+    if (file) {
+      const uploadedFilePath = path.join(__dirname, "../../public/uploads", file.filename);
+      if (fs.existsSync(uploadedFilePath)) {
+        fs.unlinkSync(uploadedFilePath);
+      }
+    }
+
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null
+    });
+    return;
+  }
+};
+
+
+
+// getSingleUser
+export const getSingleUser = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    // check id validation
+    if (!id) {
+      res.status(400).json({
+        success: false,
+        message: "User ID is required!",
+        statusCode: 400,
+        data: null,
+      });
+      return;
+    }
+
+    const result = await getSingleUserService(id as string);
+
+    if (!result) {
+      res.status(404).json({
+        success: false,
+        message: "User not found!",
+        statusCode: 404,
+        data: null,
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "User fetched successfully",
+      statusCode: 200,
+      data: result,
+    });
+    return;
+
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
     });
     return;
   }
 };
 
 // updateUserRole
-export const updateUserRole = async (req: Request,res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const { role } = req.body;
-    const requestedAdminId = (req as any)?.user.id;
+export const updateUserRole = async (req: Request, res: Response): Promise<void> => {
 
-    const result = await updateUserRoleService(id as string, requestedAdminId, role);
+  try{
 
-    res.status(200).json({
+    const {id} = req.params;
+    const loggedInUser = (req as any).user;
+    const {role} = req.body;
+
+    // checked user role is admin
+    if (loggedInUser?.role !== "ADMIN") {
+      res.status(403).json({
+        success: false,
+        message: "Only ADMIN can change user roles!",
+        statusCode: 403,
+        data: null
+      });
+      return;
+    }
+
+    // check user id
+    if(id === loggedInUser?.id){
+        res.status(403).json({
+        success: false,
+        message: "You cannot update your own role!",
+        statusCode: 403,
+        data: null
+      });
+      return;
+    }
+
+    const result = await updateUserRoleService(id as string,{role});
+
+      res.status(200).json({
       success: true,
-      message: "User role updated successfully!",
-      data: result,
+      message: "User role updated successfully",
+      statusCode: 200,
+      data: result
     });
-  } catch (error: any) {
-    res.status(400).json({
+    return;
+
+  }catch(error: any){
+    res.status(500).json({
       success: false,
-      message: error.message || "Failed to update user role",
+      message: error.message || 'Something went wrong',
+      statusCode: 500,
+      data: null
     });
+    return;
   }
-};
+
+}
 
 
 // updateUserStatus
-export const updateUserStatus = async (req: Request,res: Response ): Promise<void> => {
+export const updateUserStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
+    const loggedInUser = (req as any).user;
     const { status } = req.body;
-    const requestedUserId = (req as any).user?.id;
 
-    const result = await updateUserStatusService(id as string,requestedUserId,status);
+    // checked user id
+    if (id === loggedInUser?.id) {
+      res.status(403).json({
+        success: false,
+        message: "You cannot update your own status!",
+        statusCode: 403,
+        data: null,
+      });
+      return;
+    }
+
+    const result = await updateUserStatusService(id as string, { status });
 
     res.status(200).json({
       success: true,
-      message: "User status updated successfully!",
+      message: "User status updated successfully",
+      statusCode: 200,
       data: result,
     });
+    return;
+
   } catch (error: any) {
-    res.status(400).json({
+    res.status(500).json({
       success: false,
-      message: error.message || "Failed to update user status",
+      message: error.message || 'Something went wrong',
+      statusCode: 500,
+      data: null,
     });
+    return;
   }
 };
 
-
-// softDeleteUser
-export const softDeleteUser = async ( req: Request, res: Response ): Promise<void> => {
+// deleteUser
+export const deleteUser = async (req: Request, res: Response): Promise<void> => {
   try {
-
     const { id } = req.params;
-    const requestedAdminId = (req as any).user?.id;
+    const loggedInUser = (req as any).user;
 
-    const result = await softDeleteUserService(id as string,requestedAdminId);
+    // checked user id
+    if (id === loggedInUser?.id) {
+      res.status(403).json({
+        success: false,
+        message: "You cannot delete your own account!",
+        statusCode: 403,
+        data: null,
+      });
+      return;
+    }
+
+    const result = await deleteUserService(id as string);
 
     res.status(200).json({
       success: true,
-      message: "User deleted successfully!",
+      message: "User deleted successfully",
+      statusCode: 200,
       data: result,
     });
+    return;
+
   } catch (error: any) {
-    res.status(400).json({
+    res.status(500).json({
       success: false,
-      message: error.message || "Failed to delete user",
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
     });
+    return;
   }
 };
-
 
 // restoreUser
-export const restoreUser = async (req: Request,res: Response ): Promise<void> => {
+export const restoreUser = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const requestedAdminId = (req as any).user?.id;
 
-    const result = await restoreUserService(id as string, requestedAdminId);
-
-    res.status(200).json({
-      success: true,
-      message: "User restored successfully!",
-      data: result,
-    });
-  } catch (error: any) {
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to restore user",
-    });
-  }
-};
-
-
-// getUserProfile
-export const getUserProfile = async ( req: Request, res: Response ): Promise<void> => {
-  try {
-    const userId = (req as any).user?.id;
-
-    const result = await getUserProfileService(userId);
+    const result = await restoreUserService(id as string);
 
     res.status(200).json({
       success: true,
-      message: "User profile fetched successfully!",
+      message: "User restored successfully",
+      statusCode: 200,
       data: result,
     });
+    return;
   } catch (error: any) {
-    res.status(400).json({
+    res.status(500).json({
       success: false,
-      message: error.message || "Failed to fetch user profile",
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
     });
-  }
-};
-
-
-// updateUserProfile
-export const updateUserProfile = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userId = (req as any).user?.id;
-    const file = (req as any).file;
-    
-    // Generating data and relative file paths from Multer
-    const payload = {
-      ...req.body,
-      ...(file && { profileImage: `/uploads/${file.filename}` }),
-    };
-
-    const result = await updateUserProfileService(userId, payload);
-
-    res.status(200).json({
-      success: true,
-      message: "User profile updated successfully!",
-      data: result,
-    });
-  } catch (error: any) {
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to update user profile",
-    });
+    return;
   }
 };

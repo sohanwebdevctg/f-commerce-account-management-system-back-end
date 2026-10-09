@@ -1,7 +1,7 @@
 # Dependencies
 node_modules/
 
-# Environment Variables (খুবই জরুরি, পাসওয়ার্ড ও সিক্রেট কি থাকে)
+# Environment Variables (Very important; includes password and secret key)
 .env
 .env.local
 .env.*.local
@@ -10,7 +10,7 @@ node_modules/
 dist/
 build/
 
-# Database / Prisma generated files (অপ্রয়োজনীয়)
+# Database / Prisma generated files (Unnecessary)
 *.db
 *.sqlite
 

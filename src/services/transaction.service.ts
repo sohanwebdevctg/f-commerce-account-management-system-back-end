@@ -1,195 +1,178 @@
-import prisma from '../prisma';
-import { TransactionType, Role } from '@prisma/client';
+import prisma from "../prisma";
+import { TransactionType } from "@prisma/client";
 
-interface ICreateTransactionPayload {
-  type: TransactionType;
+// create transaction type
+export interface ICreateTransactionPayload {
   amount: number;
+  type: TransactionType;
   note?: string;
   createdById: string;
-  userRole: Role;
 }
 
-interface IGetAllTransactionsQuery {
+export interface IGetAllTransactionsPayload {
+  user: {id: string;role: string;};
+  startDate?: string;
+  endDate?: string;
+  type?: string;
   searchTerm?: string;
-  userId: string;
-  userRole: Role;
 }
 
-interface IGetSingleTransactionPayload {
-  id: string;
-  userId: string;
-  userRole: Role;
+export interface IUpdateTransactionPayload {
+  amount: number;
+  type: TransactionType;
+  note?: string;
 }
 
-interface IGetTransactionSummaryPayload {
-  userId: string;
-  userRole: Role;
-}
-
-// createTransactionService
+// Create Transaction Service
 export const createTransactionService = async (payload: ICreateTransactionPayload) => {
-  const { type, amount, note, createdById, userRole } = payload;
-
-  // Business Logic: Only ADMIN can create INVESTMENT transactions
-  if (type === TransactionType.INVESTMENT && userRole !== Role.ADMIN) {
-    throw new Error('Only ADMIN can create INVESTMENT transactions!');
-  }
-
-  const transaction = await prisma.transaction.create({
+  const result = await prisma.transaction.create({
     data: {
-      type,
-      amount,
-      note,
-      createdById,
-    },
-    select: {
-      id: true,
-      type: true,
-      amount: true,
-      note: true,
-      createdById: true,
-      createdAt: true,
-      updatedAt: true,
-      createdBy: {
-        select: {
-          id: true,
-          email: true,
-          role: true,
-        },
-      },
+      amount: payload.amount,
+      type: payload.type,
+      note: payload.note,
+      createdById: payload.createdById,
     },
   });
 
-  return transaction;
+  return result;
 };
 
 
-// getAllTransactionsService
-export const getAllTransactionsService = async (query: IGetAllTransactionsQuery) => {
-  const { searchTerm, userId, userRole } = query;
+// getAllTransactionService
+export const getAllTransactionService = async (payload: IGetAllTransactionsPayload) => {
+
+  const { user, startDate, endDate, type, searchTerm } = payload;
 
   const whereConditions: any = {};
 
-  if (userRole !== Role.ADMIN) {
-    whereConditions.createdById = userId;
+  // Role based check
+  if (user.role !== "ADMIN") {
+    whereConditions.userId = user.id;
   }
 
-  // Admin Search filter with TRIM
-  if (userRole === Role.ADMIN && searchTerm) {
+  // Type filter
+  if (type) {
+    whereConditions.type = type;
+  }
+
+  // Date range filter
+  if (startDate || endDate) {
+    whereConditions.createdAt = {};
+    if (startDate) {
+      whereConditions.createdAt.gte = new Date(startDate);
+    }
+    if (endDate) {
+      // To cover up to the end of the specified day (23:59:59)
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      whereConditions.createdAt.lte = end;
+    }
+  }
+
+  // Search filter (For ADMIN only: search by user name or email)
+  if (searchTerm && user.role === "ADMIN") {
     const cleanedSearchTerm = searchTerm.trim();
 
-    whereConditions.createdBy = {
+    whereConditions.user = {
       OR: [
-        { name: { contains: cleanedSearchTerm, mode: 'insensitive' } },
-        { email: { contains: cleanedSearchTerm, mode: 'insensitive' } },
+        { name: { contains: cleanedSearchTerm, mode: "insensitive" } },
+        { email: { contains: cleanedSearchTerm, mode: "insensitive" } },
       ],
     };
   }
 
-  const transactions = await prisma.transaction.findMany({
+  // Retrieving data from the database
+  const result = await prisma.transaction.findMany({
     where: whereConditions,
-    select: {
-      id: true,
-      type: true,
-      amount: true,
-      note: true,
-      createdById: true,
-      createdAt: true,
-      updatedAt: true,
-      createdBy: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-        },
-      },
-    },
     orderBy: {
-      createdAt: 'desc',
+      createdAt: "desc",
     },
-  });
-
-  return transactions;
-};
-
-
-// getSingleTransactionService
-export const getSingleTransactionService = async (payload: IGetSingleTransactionPayload) => {
-  const { id, userId, userRole } = payload;
-
-  const whereConditions: any = { id };
-
-  // Role based check: Non-Admin can only view their own transaction
-  if (userRole !== Role.ADMIN) {
-    whereConditions.createdById = userId;
-  }
-
-  const transaction = await prisma.transaction.findFirst({
-    where: whereConditions,
     select: {
       id: true,
-      type: true,
       amount: true,
-      note: true,
-      createdById: true,
+      type: true,
       createdAt: true,
-      updatedAt: true,
       createdBy: {
         select: {
           id: true,
           name: true,
           email: true,
-          role: true,
-          profileImage: true,
         },
       },
     },
   });
 
-  if (!transaction) {
-    throw new Error("Transaction not found or access denied!");
-  }
+  return result;
 
-  return transaction;
-};
+}
 
+// getDashboardSummaryService
+export const getDashboardSummaryService = async (userId: string, role: string) => {
+  // Filter field setup based on user roles
+  const whereCondition: any = role === 'ADMIN' ? {} : { createdById: userId };
 
-// getTransactionSummaryService
-export const getTransactionSummaryService = async (payload: IGetTransactionSummaryPayload) => {
-  const { userRole } = payload;
-
-  // Strict check: Only ADMIN can access summary
-  if (userRole !== Role.ADMIN) {
-    throw new Error("Access denied! Only ADMIN can view transaction summary.");
-  }
-
-  // Aggregate total sums by type across all system transactions
+  // Calculating the sum of amounts by type using Prisma
   const summary = await prisma.transaction.groupBy({
     by: ['type'],
+    where: whereCondition,
     _sum: {
       amount: true,
     },
   });
 
-  let totalInvestment = 0;
-  let totalIncome = 0;
-  let totalExpense = 0;
-
-  summary.forEach((item) => {
-    const sumAmount = Number(item._sum.amount || 0);
-    if (item.type === 'INVESTMENT') {
-      totalInvestment = sumAmount;
-    } else if (item.type === 'INCOME') {
-      totalIncome = sumAmount;
-    } else if (item.type === 'EXPENSE') {
-      totalExpense = sumAmount;
-    }
-  });
+  // Extracting values ​​from the obtained data
+  const totalIncome = summary.find((s) => s.type === 'INCOME')?._sum.amount || 0;
+  const totalExpense = summary.find((s) => s.type === 'EXPENSE')?._sum.amount || 0;
+  
+  // For ADMIN, track investment details; for others, mark as 'undefined' (or omit)
+  const totalInvestment = role === 'ADMIN' 
+    ? (summary.find((s) => s.type === 'INVESTMENT')?._sum.amount || 0) 
+    : undefined;
 
   return {
-    totalInvestment,
     totalIncome,
     totalExpense,
+    ...(role === 'ADMIN' && { totalInvestment }),
   };
+};
+
+
+// getSingleTransactionService
+export const getSingleTransactionService = async (id: string) => {
+  const result = await prisma.transaction.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      amount: true,
+      type: true,
+      note: true,
+      createdAt: true,
+      updatedAt: true,
+      createdById: true,
+      createdBy: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+        },
+      },
+    },
+  });
+
+  return result;
+}
+
+
+// updateSingleTransactionService
+export const updateSingleTransactionService = async (id: string, payload: IUpdateTransactionPayload) => {
+  const result = await prisma.transaction.update({
+    where: { id },
+    data: {
+      amount: payload.amount,
+      type: payload.type,
+      note: payload.note,
+    },
+  });
+
+  return result;
 };

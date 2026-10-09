@@ -1,126 +1,166 @@
-import { CategoryStatus } from '@prisma/client';
-import prisma from '../prisma';
+import prisma from "../prisma";
+import { CategoryStatus } from "@prisma/client";
 
-interface ICreateCategoryPayload {
+export interface ICreateCategoryPayload{
   name: string;
   description?: string;
   status?: CategoryStatus;
+  createdBy: string;
 }
 
-interface IGetAllCategoriesQuery {
-  isDeleted?: string;
+export interface IGetAllCategoriesPayload {
+  isDeleted: boolean;
   searchTerm?: string;
 }
 
-interface IUpdateCategoryPayload {
+
+// Update Category Status Payload Interface
+export interface IUpdateCategoryStatusPayload {
+  status: CategoryStatus;
+}
+
+// update category payload
+export interface IUpdateCategoryPayload {
   name?: string;
   description?: string;
 }
 
-// createCategoryService
-export const createCategoryService = async (userId: string,payload: ICreateCategoryPayload ) => {
+// create category service
+export const createCategoryService = async (payload: ICreateCategoryPayload) => {
 
-  // Checking for case-insensitive unique names (matches will be detected regardless of whether uppercase or lowercase letters are used)
+  // Check for duplicate names (case-insensitive)
   const existingCategory = await prisma.category.findFirst({
     where: {
       name: {
-        equals: payload.name.trim(),
-        mode: 'insensitive',
+        equals: payload.name,
+        mode: "insensitive", // Matches regardless of case (uppercase/lowercase)
       },
     },
   });
 
   if (existingCategory) {
-    throw new Error('Category with this name already exists!');
+    throw new Error("Category with this name already exists!");
   }
 
-  // Creating a category (it is best to trim it to remove extra spaces)
-  const newCategory = await prisma.category.create({
+  // Creating a new category in the database
+  const result = await prisma.category.create({
     data: {
-      name: payload.name.trim(),
+      name: payload.name,
       description: payload.description,
-      status: payload.status || CategoryStatus.ACTIVE,
-      createdById: userId,
-    },
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      status: true,
-      isDeleted: true,
-      createdAt: true,
-      updatedAt: true,
+      status: payload.status,
       createdBy: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
+        connect: {
+          id: payload.createdBy,
         },
       },
+    },
+    select: {
+      name: true,
     },
   });
 
-  return newCategory;
-};
+  return result;
 
-
-// getAllCategoriesService
-export const getAllCategoriesService = async (query: IGetAllCategoriesQuery) => {
-  const { isDeleted, searchTerm } = query;
-
-  // Dynamic filter object
-  const whereCondition: any = {};
-
-  // Tab logic (Active vs Trash)
-  if (isDeleted !== undefined) {
-    whereCondition.isDeleted = isDeleted === 'true';
-  }
-
-  // Search logic (Category Name)
-if (searchTerm) {
-  const cleanedSearchTerm = searchTerm.trim();
-  whereCondition.OR = [
-    { name: { contains: cleanedSearchTerm, mode: 'insensitive' } },
-  ];
 }
 
-  // Retrieving categories along with products count
-  const categories = await prisma.category.findMany({
-    where: whereCondition,
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      status: true,
-      isDeleted: true,
-      createdAt: true,
-      updatedAt: true,
-      _count: {
-        select: {
-          products: true, // Counting products for productsCount field
-        },
-      },
-      createdBy: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-        },
-      },
-    },
+
+// get all category service
+export const getAllCategoryService = async (payload: IGetAllCategoriesPayload) => {
+
+  // get payload data
+  const { isDeleted, searchTerm } = payload;
+
+  // sending data
+  const whereConditions: any = { isDeleted };
+
+  // if search data
+  if (searchTerm) {
+    const cleanedSearchTerm = searchTerm.trim().toLowerCase();
+
+    // check search data value
+    whereConditions.name = {
+      contains: cleanedSearchTerm,
+      mode: 'insensitive',
+    };
+  }
+
+  // Retrieving data from the database
+  const result = await prisma.category.findMany({
+    where: whereConditions,
     orderBy: {
       createdAt: 'desc',
     },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      isDeleted: true,
+      createdAt: true,
+      _count: {
+        select: {
+          products: true,
+        },
+      },
+    },
   });
 
-  return categories;
+  return result;
+
+}
+
+// getAllActiveCategoryService
+export const getAllActiveCategoryService = async () => {
+  const result = await prisma.category.findMany({
+    where: {
+      isDeleted: false,
+      status: "ACTIVE",
+    },
+    select: {
+      id: true,
+      name: true,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
+
+  return result;
+};
+
+// Get All Public Category Service
+export const getAllPublicCategoryService = async () => {
+  const result = await prisma.category.findMany({
+    where: {
+      isDeleted: false,
+      status: "ACTIVE",
+      // যেসব ক্যাটাগরির আন্ডারে অন্তত একটি active প্রোডাক্ট আছে শুধু সেগুলো আসবে
+      products: {
+        some: {
+          isActive: true,
+          isDeleted: false,
+        },
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
+
+  return result;
 };
 
 
-// getCategoryByIdService
-export const getCategoryByIdService = async (id: string) => {
-  const category = await prisma.category.findUnique({
-    where: { id },
+// Get Single Category Service
+export const getSingleCategoryService = async (id: string) => {
+  const result = await prisma.category.findUnique({
+    where: { 
+      id,
+      isDeleted: false,
+    },
     select: {
       id: true,
       name: true,
@@ -134,8 +174,6 @@ export const getCategoryByIdService = async (id: string) => {
           id: true,
           name: true,
           email: true,
-          role: true,
-          profileImage: true,
         },
       },
       _count: {
@@ -145,196 +183,102 @@ export const getCategoryByIdService = async (id: string) => {
       },
     },
   });
-
-  if (!category) {
-    throw new Error('Category not found!');
-  }
-
-  return category;
+  return result;
 };
-
 
 // updateCategoryStatusService
-export const updateCategoryStatusService = async (id: string, newStatus: string) => {
-  // Check if category exists
-  const category = await prisma.category.findUnique({
-    where: { id },
-  });
-
-  if (!category || category.isDeleted) {
-    throw new Error("Category not found!");
-  }
-
-  // Update status
-  const updatedCategory = await prisma.category.update({
-    where: { id },
-    data: { status: newStatus as any },
-    select: {
-      id: true,
-      name: true,
-      status: true,
-      updatedAt: true,
-    },
-  });
-
-  return updatedCategory;
-};
-
-
-// updateCategoryService
-export const updateCategoryService = async (id: string,payload: IUpdateCategoryPayload ) => {
-  // Check category existence
-  const currentCategory = await prisma.category.findUnique({
-    where: { id },
-  });
-
-  if (!currentCategory || currentCategory.isDeleted) {
-    throw new Error("Category not found!");
-  }
-
-  const updatedData: Record<string, any> = {};
-
-  // Check unique name if user attempts to change it
-  if (payload.name) {
-    const trimmedName = payload.name.trim();
-
-    if (trimmedName.toLowerCase() !== currentCategory.name.toLowerCase()) {
-      const existingCategory = await prisma.category.findFirst({
-        where: {
-          name: {
-            equals: trimmedName,
-            mode: "insensitive",
-          },
-        },
-      });
-
-      if (existingCategory) {
-        throw new Error("Category with this name already exists!");
-      }
-    }
-
-    updatedData.name = trimmedName;
-  }
-
-  // Update description if provided
-  if (payload.description !== undefined) {
-    updatedData.description = payload.description;
-  }
-
-  // Update database (status & isDeleted cannot be updated here)
-  const updatedCategory = await prisma.category.update({
-    where: { id },
-    data: updatedData,
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      status: true,
-      isDeleted: true,
-      createdAt: true,
-      updatedAt: true,
-      createdBy: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-        },
+export const updateCategoryStatusService = async (id: string,
+  payload: IUpdateCategoryStatusPayload) => {
+    const result = await prisma.category.update({
+      where: { id },
+      data: {
+        status: payload.status,
       },
-    },
-  });
+    });
+    return result;
+}
 
-  return updatedCategory;
-};
-
-
-// softDeleteCategoryService
-export const softDeleteCategoryService = async (id: string) => {
-  // Check if category exists
-  const category = await prisma.category.findUnique({
-    where: { id },
-  });
-
-  if (!category) {
-    throw new Error("Category not found!");
-  }
-
-  if (category.isDeleted) {
-    throw new Error("Category is already deleted!");
-  }
-
-  // Soft delete (setting isDeleted: true and deletedAt)
-  const deletedCategory = await prisma.category.update({
+// Soft Delete Category Service
+export const deleteCategoryService = async (id: string) => {
+  const result = await prisma.category.update({
     where: { id },
     data: {
       isDeleted: true,
       deletedAt: new Date(),
     },
-    select: {
-      id: true,
-      name: true,
-      isDeleted: true,
-      deletedAt: true,
-      updatedAt: true,
-    },
   });
-
-  return deletedCategory;
-};
-
+  return result;
+}
 
 // restoreCategoryService
 export const restoreCategoryService = async (id: string) => {
-  // Check if category exists
-  const category = await prisma.category.findUnique({
-    where: { id },
-  });
-
-  if (!category) {
-    throw new Error("Category not found!");
-  }
-
-  if (!category.isDeleted) {
-    throw new Error("Category is not deleted!");
-  }
-
-  // Restore logic (setting isDeleted: false and deletedAt: null)
-  const restoredCategory = await prisma.category.update({
+  const result = await prisma.category.update({
     where: { id },
     data: {
       isDeleted: false,
       deletedAt: null,
     },
-    select: {
-      id: true,
-      name: true,
-      isDeleted: true,
-      deletedAt: true,
-      updatedAt: true,
+  });
+  return result;
+}
+
+
+// update category service
+export const updateCategoryService = async ( id: string, payload: IUpdateCategoryPayload) => {
+
+  // Checking whether the category is genuine and has not been deleted.
+  const existingCategory = await prisma.category.findUnique({
+    where: {
+      id,
+      isDeleted: false,
     },
   });
 
-  return restoredCategory;
-};
+  if (!existingCategory) {
+    throw new Error("Category not found!");
+  }
 
+  // If a new name is submitted, match it against names in other categories (case-insensitive).
+  if (payload.name) {
+    const duplicateCategory = await prisma.category.findFirst({
+      where: {
+        id: { not: id },
+        name: {
+          equals: payload.name,
+          mode: "insensitive",
+        },
+        isDeleted: false,
+      },
+    });
 
-// getPublicCategoriesService
-export const getPublicCategoriesService = async () => {
-  const categories = await prisma.category.findMany({
-    where: {
-      isDeleted: false,
-      status: CategoryStatus.ACTIVE,
-    },
+    if (duplicateCategory) {
+      throw new Error("Category with this name already exists!");
+    }
+  }
+
+  // Preparing update data (only the data that has been sent will be updated)
+  const updateData: Record<string, any> = {};
+
+  if (payload.name !== undefined) {
+    updateData.name = payload.name;
+  }
+
+  if (payload.description !== undefined) {
+    updateData.description = payload.description;
+  }
+
+  // Database update
+  const result = await prisma.category.update({
+    where: { id },
+    data: updateData,
     select: {
       id: true,
       name: true,
       description: true,
       status: true,
-      createdAt: true,
-    },
-    orderBy: {
-      createdAt: "desc",
+      updatedAt: true,
     },
   });
 
-  return categories;
+  return result;
 };

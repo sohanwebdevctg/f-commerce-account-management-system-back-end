@@ -1,15 +1,15 @@
+import prisma from "../prisma";
+import { ProductType, CategoryStatus } from "@prisma/client";
 import fs from "fs";
 import path from "path";
-import prisma from "../prisma";
-import { CategoryStatus, ProductType } from "@prisma/client";
 
-// Product Variant Option Interface
+// create product payload
 export interface IVariantOptionPayload {
-  variantName?: string;
   size?: string;
+  varientName?: string;
+  costPrice: number;
   minPrice?: number;
   maxPrice?: number;
-  costPrice: number;
   sellPrice: number;
   stock: number;
   vatPercent?: number;
@@ -17,14 +17,12 @@ export interface IVariantOptionPayload {
   isActive?: boolean;
 }
 
-// Product Variant Color Block Interface
 export interface IVariantBlockPayload {
   colorCode?: string;
   images?: string[];
   options: IVariantOptionPayload[];
 }
 
-// Create Product Full Payload Interface
 export interface ICreateProductPayload {
   name: string;
   thumbnailImage: string;
@@ -33,68 +31,359 @@ export interface ICreateProductPayload {
   brand?: string;
   productType: ProductType;
   categoryId: string;
-  isActive?: boolean;
-  
-  // Single Product Specific Fields
+  isActive?: boolean | string; // Boolean বা String দুটোই সাপোর্ট করবে
+
+  // Single Product Fields
   images?: string[];
   colorCode?: string;
   size?: string;
-  minPrice?: number;
-  maxPrice?: number;
   costPrice?: number;
   sellPrice?: number;
   stock?: number;
-  vatPercent?: number;
-  discountPercent?: number;
 
-  // Variant Product Specific Fields
+  // Variant Product Fields
   variants?: IVariantBlockPayload[];
 }
 
-// Interface for Query Parameters
-export interface IGetAllProductsQuery {
-  isDeleted?: string;
+// get all product payload
+export interface IGetAllProductsPayload {
+  isDeleted: boolean;
   searchTerm?: string;
 }
 
+// getSingleProduct payload
+export interface IGetSingleProductPayload {
+  id: string;
+}
+
+// Update Types Definition
+export interface IUpdateVariantOptionPayload {
+  id?: string | number;
+  size?: string;
+  varientName?: string;
+  costPrice: number;
+  sellPrice: number;
+  stock: number;
+  isActive?: boolean | string;
+}
+
+export interface IUpdateVariantBlockPayload {
+  id?: string | number;
+  colorCode?: string;
+  isActive?: boolean | string;
+  existingImages?: string[];
+  options: IUpdateVariantOptionPayload[];
+}
+
 export interface IUpdateProductPayload {
-  name?: string;
-  thumbnailImage?: string;
+  name: string;
+  thumbnailImage: string;
   shortDescription?: string;
   description?: string;
   brand?: string;
-  categoryId?: string;
-  updatedById?: string;
+  productType: ProductType;
+  categoryId: string;
+  isActive?: boolean | string;
 
-  // Single Product Specific Fields
+  // Single Product Fields
+  existingImages?: string[];
+  newImages?: string[];
+  colorCode?: string;
   size?: string;
-  minPrice?: number;
-  maxPrice?: number;
   costPrice?: number;
   sellPrice?: number;
   stock?: number;
-  vatPercent?: number;
-  discountPercent?: number;
-  colorCode?: string;
-  images?: string[];
 
-  // Variant Product Specific Fields
-  variants?: any[];
+  // Variant Product Fields
+  variants?: IUpdateVariantBlockPayload[];
 }
 
-// Helper: Local File Deletion
-const removeOldFile = (filePath: string) => {
-  if (!filePath) return;
-  const fullPath = path.join(process.cwd(), "public", filePath);
-  if (fs.existsSync(fullPath)) {
-    fs.unlinkSync(fullPath);
+// get all public product payload
+export interface IGetPublicProductsPayload {
+  category?: string;
+  searchTerm?: string;
+}
+
+// get single public product payload
+export interface IGetSinglePublicProductPayload {
+  id: string;
+}
+
+// সার্ভারের uploads ফোল্ডার থেকে ফাইল ডিলিট করার হেলপার
+const removeLocalFile = (fileRelativePath?: string | null) => {
+  if (!fileRelativePath) return;
+  try {
+    const cleanPath = fileRelativePath.startsWith("/") ? fileRelativePath.slice(1) : fileRelativePath;
+    const filePath = path.join(__dirname, "../../public", cleanPath);
+    
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (error) {
+    console.error("Error deleting file:", error);
   }
 };
 
-// createProductService
-export const createProductService = async ( createdById: string, payload: ICreateProductPayload) => {
+// get all public product service
+export const getAllPublicProductsService = async (payload: IGetPublicProductsPayload) => {
+  const { category, searchTerm } = payload;
 
-  // 1. Category Active and Non-Deleted Check
+  // Search Filter
+  const searchFilter =
+    searchTerm && searchTerm.trim() !== ''
+      ? {
+          name: {
+            contains: searchTerm.trim().toLowerCase(),
+            mode: 'insensitive' as const,
+          },
+        }
+      : {};
+
+  // Category Filter
+  const categoryFilter =
+    category && category.trim() !== '' && (!searchTerm || searchTerm.trim() === '')
+      ? { categoryId: category }
+      : {};
+
+  const result = await prisma.product.findMany({
+    where: {
+      ...searchFilter,
+      ...categoryFilter,
+      isActive: true,
+      isDeleted: false,
+      // Category মডেলের স্কিমা অনুযায়ী ফিল্টার
+      category: {
+        status: 'ACTIVE',
+        isDeleted: false,
+      },
+      // ১. প্রোডাক্টের আন্ডারে অন্তত ১টি ACTIVE ও non-deleted Variant থাকতে হবে
+      variants: {
+        some: {
+          isActive: true,
+          isDeleted: false,
+          // ২. সেই Variant এর আন্ডারেও অন্তত ১টি ACTIVE ও non-deleted VariantItem থাকতে হবে
+          variantItems: {
+            some: {
+              isActive: true,
+              isDeleted: false,
+            },
+          },
+        },
+      },
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+    select: {
+      id: true,
+      thumbnailImage: true,
+      name: true,
+      productType: true,
+      shortDescription: true, // shortDescription যুক্ত করা হলো
+      description: true,      // description যুক্ত করা হলো
+      brand: true,            // brand যুক্ত করা হলো (যদি রিলেশন হয়ে থাকে তবে brand: { select: { name: true } } দিবেন)
+      isActive: true,
+      isDeleted: true,
+      createdAt: true,
+      category: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      variants: {
+        where: {
+          isActive: true,
+          isDeleted: false,
+          variantItems: {
+            some: {
+              isActive: true,
+              isDeleted: false,
+            },
+          },
+        },
+        select: {
+          id: true,
+          colorCode: true,
+          isActive: true,
+          isDeleted: true,
+          images: {
+            select: {
+              id: true,
+              productImage: true,
+            },
+          },
+          variantItems: {
+            where: {
+              isActive: true,
+              isDeleted: false,
+            },
+            select: {
+              id: true,
+              varientName: true,
+              size: true,
+              costPrice: true,
+              sellPrice: true,
+              stock: true,
+              profit: true,
+              isActive: true,
+              isDeleted: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  return result;
+};
+
+// get single public product service
+export const getSinglePublicProductService = async (payload: IGetSinglePublicProductPayload) => {
+  
+  const { id } = payload;
+
+  const result = await prisma.product.findFirst({
+    where: {
+      id: id,
+      isActive: true,
+      isDeleted: false,
+      category: {
+        status: 'ACTIVE',
+        isDeleted: false,
+      },
+    },
+    select: {
+      id: true,
+      thumbnailImage: true,
+      name: true,
+      productType: true,
+      shortDescription: true,
+      description: true,
+      brand: true,
+      isActive: true,
+      isDeleted: true,
+      createdAt: true,
+      category: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      variants: {
+        where: {
+          isActive: true,
+          isDeleted: false,
+          variantItems: {
+            some: {
+              isActive: true,
+              isDeleted: false,
+            },
+          },
+        },
+        select: {
+          id: true,
+          colorCode: true,
+          isActive: true,
+          isDeleted: true,
+          images: {
+            select: {
+              id: true,
+              productImage: true,
+            },
+          },
+          variantItems: {
+            where: {
+              isActive: true,
+              isDeleted: false,
+            },
+            select: {
+              id: true,
+              varientName: true,
+              size: true,
+              costPrice: true,
+              sellPrice: true,
+              stock: true,
+              profit: true,
+              isActive: true,
+              isDeleted: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  return result;
+};
+
+
+// create product service
+export const createProductService = async (createdById: string, payload: ICreateProductPayload, files: any) => {
+  // ----------------------------------------------------
+  // 🛑 Step 1: Payload Parse (variants যদি JSON string হিসেবে আসে)
+  // ----------------------------------------------------
+  let parsedVariants: IVariantBlockPayload[] = [];
+  if (payload.variants) {
+    if (typeof payload.variants === 'string') {
+      try {
+        parsedVariants = JSON.parse(payload.variants);
+      } catch (e) {
+        parsedVariants = [];
+      }
+    } else {
+      parsedVariants = payload.variants;
+    }
+  }
+
+  // ----------------------------------------------------
+  // 🛑 Step 2: Image Validations & Processing
+  // ----------------------------------------------------
+
+  // ১.১ Thumbnail Image Check (সব প্রোডাক্টের জন্যই বাধ্যতামূলক)
+  const thumbnailFile = (files as any[])?.find(
+    (f) => f.fieldname === 'thumbnailImage'
+  );
+
+  if (!thumbnailFile) {
+    throw new Error('Product thumbnail image is required!');
+  }
+
+  const thumbnailImagePath = `/uploads/${thumbnailFile.filename}`;
+
+  // ১.২ Single Product Image Check (কমপক্ষে একটি প্রোডাক্ট ইমেজ বাধ্যতামূলক)
+  if (payload.productType === ProductType.SINGLE) {
+    const hasProductImage = (files as any[])?.some(
+      (f) => f.fieldname === 'productImage'
+    );
+
+    if (!hasProductImage) {
+      throw new Error('Single product must have at least one product image!');
+    }
+  }
+
+  // ১.৩ Variant Product Image Check (প্রতিটি ভ্যারিয়েন্টের জন্য কমপক্ষে একটি ইমেজ বাধ্যতামূলক)
+  if (payload.productType === ProductType.VARIANT) {
+    if (!parsedVariants || parsedVariants.length === 0) {
+      throw new Error('At least one variant is required!');
+    }
+
+    for (let i = 0; i < parsedVariants.length; i++) {
+      const hasVariantImage = (files as any[])?.some(
+        (f) => f.fieldname === `variant_images_${i}`
+      );
+
+      if (!hasVariantImage) {
+        throw new Error(`Variant #${i + 1} must have at least one image!`);
+      }
+    }
+  }
+
+  // ----------------------------------------------------
+  // Step 3: Database Operations
+  // ----------------------------------------------------
+
+  // ৩.১ ক্যাটাগরি ভ্যালিডেশন
   const category = await prisma.category.findUnique({
     where: { id: payload.categoryId },
   });
@@ -103,25 +392,20 @@ export const createProductService = async ( createdById: string, payload: ICreat
     throw new Error("Invalid or inactive category selected!");
   }
 
-  // 2. Validate At Least One Image Rule
-  if (!payload.thumbnailImage) {
-    throw new Error("Product thumbnail image is required!");
-  }
-
-  // 3. Database Operation via Prisma Transaction
+  // ৩.২ ট্রানজেকশনে ডাটাবেজ অপারেশন
   return await prisma.$transaction(async (tx) => {
-    // Create Base Product Record
+    // মূল প্রোডাক্ট রেকর্ড তৈরি
     const product = await tx.product.create({
       data: {
         name: payload.name,
-        thumbnailImage: payload.thumbnailImage,
+        thumbnailImage: thumbnailImagePath,
         shortDescription: payload.shortDescription || null,
         description: payload.description || null,
         brand: payload.brand || null,
         productType: payload.productType || ProductType.SINGLE,
         categoryId: payload.categoryId,
         createdById: createdById,
-        isActive: payload.isActive !== undefined ? payload.isActive : true,
+        isActive: String(payload.isActive) === "true",
       },
     });
 
@@ -129,59 +413,42 @@ export const createProductService = async ( createdById: string, payload: ICreat
     // CASE A: SINGLE PRODUCT LOGIC
     // ===================================================
     if (payload.productType === ProductType.SINGLE) {
-      // STRICT VALIDATION: Blocking variant data for a single product.
-      if (payload.variants && payload.variants.length > 0) {
-        throw new Error("SINGLE product type cannot contain variant blocks!");
-      }
-
-      if (payload.costPrice === undefined || payload.sellPrice === undefined || payload.stock === undefined) {
-        throw new Error("Cost price, sell price, and stock are required for single products!");
-      }
-
-      if (Number(payload.sellPrice) < Number(payload.costPrice)) {
-        throw new Error("Sell price cannot be less than cost price!");
-      }
-
       const cost = Number(payload.costPrice);
       const sell = Number(payload.sellPrice);
       const profit = sell - cost;
 
-      let colorId: string | null = null;
+      const autoVariantName = `${product.name.slice(0, 3).toUpperCase()}-${payload.size || 'REG'}-${Math.floor(100 + Math.random() * 900)}`;
 
-      // Handle Optional Color for Single Product
-      if (payload.colorCode) {
-        const createdColor = await tx.productColor.create({
-          data: {
-            productId: product.id,
-            colorCode: payload.colorCode,
-          },
-        });
-        colorId = createdColor.id;
-      }
-
-      // Create Single Product Variant Record
+      // ১. ProductVariant ক্রিয়েট (শুধু productId ও colorCode)
       const createdVariant = await tx.productVariant.create({
         data: {
           productId: product.id,
-          colorId: colorId,
-          size: payload.size || null,
-          costPrice: cost,
-          minimumPrice: payload.minPrice ? Number(payload.minPrice) : null,
-          maximumPrice: payload.maxPrice ? Number(payload.maxPrice) : null,
-          sellPrice: sell,
-          profit: profit,
-          stock: Number(payload.stock),
-          vatPercent: payload.vatPercent ? Number(payload.vatPercent) : 0,
-          discountPercent: payload.discountPercent ? Number(payload.discountPercent) : 0,
-          isActive: payload.isActive !== undefined ? payload.isActive : true,
+          colorCode: payload.colorCode || null,
         },
       });
 
-      // Handle Gallery Images
-      if (payload.images && payload.images.length > 0) {
-        const imageRecords = payload.images.map((imgUrl) => ({
-          productImage: imgUrl,
-          colorId: colorId,
+      // ২. VariantItem ক্রিয়েট
+      await tx.variantItem.create({
+        data: {
+          variantId: createdVariant.id,
+          varientName: autoVariantName,
+          size: payload.size || null,
+          costPrice: cost,
+          sellPrice: sell,
+          profit: profit,
+          stock: Number(payload.stock),
+          isActive: String(payload.isActive) === "true",
+        },
+      });
+
+      // ৩. ছবি যুক্ত করার লজিক
+      const singleProductImages = (files as any[])?.filter(
+        (f) => f.fieldname === 'productImage'
+      );
+
+      if (singleProductImages && singleProductImages.length > 0) {
+        const imageRecords = singleProductImages.map((f: any) => ({
+          productImage: `/uploads/${f.filename}`,
           variantId: createdVariant.id,
         }));
 
@@ -195,112 +462,67 @@ export const createProductService = async ( createdById: string, payload: ICreat
     // CASE B: VARIANT PRODUCT LOGIC
     // ===================================================
     if (payload.productType === ProductType.VARIANT) {
-      if (!payload.variants || payload.variants.length === 0) {
-        throw new Error("At least one variant block is required for VARIANT product type!");
-      }
+      for (let i = 0; i < parsedVariants.length; i++) {
+        const variantBlock = parsedVariants[i];
 
-      // Track duplicate colors
-      const colorSet = new Set<string>();
+        // ১. ProductVariant ক্রিয়েট
+        const createdVariant = await tx.productVariant.create({
+          data: {
+            productId: product.id,
+            colorCode: variantBlock.colorCode || null,
+          },
+        });
 
-      for (const variantBlock of payload.variants) {
-        // Unique Color Check within same product
-        if (variantBlock.colorCode) {
-          const lowerColor = variantBlock.colorCode.toLowerCase();
-          if (colorSet.has(lowerColor)) {
-            throw new Error(`Duplicate color code '${variantBlock.colorCode}' is not allowed!`);
-          }
-          colorSet.add(lowerColor);
-        }
-
-        let colorId: string | null = null;
-
-        // Create Color Block if colorCode exists
-        if (variantBlock.colorCode) {
-          const createdColor = await tx.productColor.create({
-            data: {
-              productId: product.id,
-              colorCode: variantBlock.colorCode,
-            },
-          });
-          colorId = createdColor.id;
-        }
-
-        if (!variantBlock.options || variantBlock.options.length === 0) {
-          throw new Error("Each variant block must contain at least one option!");
-        }
-
-        // Track duplicate sizes under the same color/block
-        const sizeSet = new Set<string>();
-
-        for (const opt of variantBlock.options) {
-          if (opt.size) {
-            const lowerSize = opt.size.toLowerCase();
-            if (sizeSet.has(lowerSize)) {
-              throw new Error(`Duplicate size '${opt.size}' found under the same color group!`);
-            }
-            sizeSet.add(lowerSize);
-          }
-
-          if (Number(opt.sellPrice) < Number(opt.costPrice)) {
-            throw new Error("Sell price cannot be less than cost price!");
-          }
-
+        // ২. VariantItem ক্রিয়েট
+        const optionsList = variantBlock.options || (variantBlock as any).items || [];
+        for (const opt of optionsList) {
           const cost = Number(opt.costPrice);
           const sell = Number(opt.sellPrice);
           const profit = sell - cost;
-
-          // Auto-generate variant code if not provided
           const autoVariantName =
-            opt.variantName ||
-            `${product.name.slice(0, 3).toUpperCase()}-${Math.floor(10 + Math.random() * 90)}`;
+            opt.varientName ||
+            `${product.name.slice(0, 3).toUpperCase()}-${opt.size || 'VAR'}-${Math.floor(10 + Math.random() * 90)}`;
 
-          const createdVariant = await tx.productVariant.create({
+          await tx.variantItem.create({
             data: {
-              productId: product.id,
-              colorId: colorId,
-              size: opt.size || null,
+              variantId: createdVariant.id,
               varientName: autoVariantName,
+              size: opt.size || null,
               costPrice: cost,
-              minimumPrice: opt.minPrice ? Number(opt.minPrice) : null,
-              maximumPrice: opt.maxPrice ? Number(opt.maxPrice) : null,
               sellPrice: sell,
               profit: profit,
               stock: Number(opt.stock),
-              vatPercent: opt.vatPercent ? Number(opt.vatPercent) : 0,
-              discountPercent: opt.discountPercent ? Number(opt.discountPercent) : 0,
-              isActive: opt.isActive !== undefined ? opt.isActive : true,
+              isActive: opt.isActive !== undefined ? Boolean(opt.isActive) : true,
             },
           });
+        }
 
-          // Handle images for this specific color block / option
-          if (variantBlock.images && variantBlock.images.length > 0) {
-            const imageRecords = variantBlock.images.map((imgUrl) => ({
-              productImage: imgUrl,
-              colorId: colorId,
-              variantId: createdVariant.id,
-            }));
+        // ৩. শুধুমাত্র এই Specific Variant (i) এর ছবিগুলো সেভ হবে
+        const currentVariantImages = (files as any[])?.filter(
+          (f) => f.fieldname === `variant_images_${i}`
+        );
 
-            await tx.productImage.createMany({
-              data: imageRecords,
-            });
-          }
+        if (currentVariantImages && currentVariantImages.length > 0) {
+          const imageRecords = currentVariantImages.map((f: any) => ({
+            productImage: `/uploads/${f.filename}`,
+            variantId: createdVariant.id,
+          }));
+
+          await tx.productImage.createMany({
+            data: imageRecords,
+          });
         }
       }
     }
 
-    // Return complete product details with nested data
     return await tx.product.findUnique({
       where: { id: product.id },
       include: {
         category: true,
-        colors: {
-          include: {
-            images: true,
-          },
-        },
         variants: {
           include: {
             images: true,
+            variantItems: true,
           },
         },
       },
@@ -309,914 +531,866 @@ export const createProductService = async ( createdById: string, payload: ICreat
 };
 
 
-// getAllProductsService
-export const getAllProductsService = async (query: IGetAllProductsQuery) => {
-  const { isDeleted, searchTerm } = query;
+// getAllProductService
+export const getAllProductService = async (payload: IGetAllProductsPayload) => {
+  const { isDeleted, searchTerm } = payload;
 
-  // Dynamic filter object for base Product
-  const whereCondition: any = {};
-
-  // Tab logic (Active vs Trash)
-  if (isDeleted !== undefined) {
-    whereCondition.isDeleted = isDeleted === 'true';
-  }
-
-  // Search logic (Product Name)
-  if (searchTerm) {
-    const cleanedSearchTerm = searchTerm.trim();
-    whereCondition.OR = [
-      { name: { contains: cleanedSearchTerm, mode: 'insensitive' } },
-    ];
-  }
-
-  const isDeletedBoolean = isDeleted === 'true';
-
-  // Retrieving products with correct schema relations
-  const products = await prisma.product.findMany({
-    where: whereCondition,
-    include: {
-      category: {
-        select: {
-          id: true,
-          name: true,
-          description: true,
+  // Search filter
+  const searchFilter = searchTerm
+    ? {
+        name: {
+          contains: searchTerm.trim().toLowerCase(),
+          mode: 'insensitive' as const,
         },
-      },
-      createdBy: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-        },
-      },
-      // Filter variants within ProductColor
-      colors: {
-        include: {
-          images: true,
-          variants: {
-            where: isDeletedBoolean ? {} : { isDeleted: false },
-            include: {
-              images: true,
+      }
+    : {};
+
+  // Build root condition dynamically
+  let whereConditions: any = {
+    ...searchFilter,
+  };
+
+  if (isDeleted) {
+    // Deleted Tab: প্রোডাক্ট, ভ্যারিয়েন্ট অথবা সাইজ/আইটেম যেকোনো এক লেভেলে isDeleted: true থাকলেই সেটা আসবে
+    whereConditions.OR = [
+      { isDeleted: true },
+      { variants: { some: { isDeleted: true } } },
+      {
+        variants: {
+          some: {
+            variantItems: {
+              some: { isDeleted: true },
             },
           },
         },
       },
-      // Direct ProductVariant filtering (which filters based on size/variant)
-      variants: {
-        where: isDeletedBoolean ? {} : { isDeleted: false },
-        include: {
-          images: true,
-        },
-      },
-    },
+    ];
+  } else {
+    // Active Tab: কেবল যেগুলোর মূল প্রোডাক্ট ডিলিট হয়নি (isDeleted: false)
+    whereConditions.isDeleted = false;
+  }
+
+  // Fetching product hierarchy data from database
+  const result = await prisma.product.findMany({
+    where: whereConditions,
     orderBy: {
       createdAt: 'desc',
     },
-  });
-
-  return products;
-};
-
-
-// getProductByIdService
-export const getProductByIdService = async (id: string) => {
-  const product = await prisma.product.findUnique({
-    where: { id },
-    include: {
+    select: {
+      id: true,
+      thumbnailImage: true,
+      name: true,
+      productType: true,
+      isActive: true,
+      isDeleted: true,
+      createdAt: true,
       category: {
         select: {
           id: true,
           name: true,
-          description: true,
         },
       },
+      _count: {
+        select: {
+          orderItems: true,
+        },
+      },
+      variants: {
+        // Deleted Tab হলে সকল ভ্যারিয়েন্ট আনবে, Active Tab হলে শুধু isDeleted: false আনবে
+        where: isDeleted ? {} : { isDeleted: false },
+        select: {
+          id: true,
+          colorCode: true,
+          isActive: true,
+          isDeleted: true,
+          _count: {
+            select: {
+              orderItems: true,
+            },
+          },
+          images: {
+            select: {
+              id: true,
+              productImage: true,
+            },
+          },
+          variantItems: {
+      // 🔴 পরিবর্তন: Active/Deleted উভয় ক্ষেত্রেই সকল variantItems আনা হচ্ছে
+      // যাতে ডাটাবেজে অরিজিনালি কয়টি সাইজ ছিল তা বুঝা যায়
+      select: {
+        id: true,
+        varientName: true,
+        size: true,
+        costPrice: true,
+        sellPrice: true,
+        stock: true,
+        profit: true,
+        isActive: true,
+        isDeleted: true,
+        _count: {
+          select: {
+            orderItems: true,
+          },
+        },
+      },
+        },
+      },
+    }
+  },
+  });
+
+  return result;
+};
+
+// getSingleProductService
+export const getSingleProductService = async (payload: IGetSingleProductPayload) => {
+  const { id } = payload;
+
+  // Step 1: চেক করা এই আইডি দিয়ে কোনো প্রোডাক্ট ডাটাবেজে আছে কিনা
+  const isProductExist = await prisma.product.findUnique({
+    where: { id },
+  });
+
+  if (!isProductExist) {
+    throw new Error("Product not found!");
+  }
+
+  // Fetch all the details when the product is found
+  const result = await prisma.product.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      thumbnailImage: true,
+      name: true,
+      shortDescription: true,
+      description: true,
+      brand: true,
+      productType: true,
+      isActive: true,
+      isDeleted: true,
+      deletedAt: true,
+      createdAt: true,
+      updatedAt: true,
+
+      // Category details
+      category: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+
+      // Created By (User)
       createdBy: {
         select: {
           id: true,
           name: true,
           email: true,
           role: true,
-          profileImage: true,
         },
       },
+
+      // Updated By (User)
       updatedBy: {
         select: {
           id: true,
           name: true,
           email: true,
+          role: true,
         },
       },
-      colors: {
-        include: {
-          images: true,
-          variants: {
-            include: {
-              images: true,
+
+      // Order Items Count
+      _count: {
+        select: {
+          orderItems: true,
+        },
+      },
+
+      // Variants with Images & VariantItems
+      variants: {
+        select: {
+          id: true,
+          colorCode: true,
+          isActive: true,
+          isDeleted: true,
+          deletedAt: true,
+          createdAt: true,
+          updatedAt: true,
+
+          images: {
+            select: {
+              id: true,
+              productImage: true,
+              createdAt: true,
             },
           },
-        },
-      },
-      variants: {
-        include: {
-          images: true,
+
+          _count: {
+            select: {
+              orderItems: true,
+            },
+          },
+
+          variantItems: {
+            select: {
+              id: true,
+              varientName: true,
+              size: true,
+              costPrice: true,
+              minimumPrice: true,
+              maximumPrice: true,
+              sellPrice: true,
+              profit: true,
+              stock: true,
+              vatPercent: true,
+              discountPercent: true,
+              isActive: true,
+              isDeleted: true,
+              deletedAt: true,
+              createdAt: true,
+              updatedAt: true,
+              _count: {
+                select: {
+                  orderItems: true,
+                },
+              },
+            },
+          },
         },
       },
     },
   });
 
-  if (!product) {
-    throw new Error('Product not found!');
-  }
-
-  return product;
+  return result;
 };
-
 
 // updateProductService
 export const updateProductService = async (
   productId: string,
-  updatedById: string,
-  payload: IUpdateProductPayload
+  payload: any,
+  groupedFiles: { [key: string]: Express.Multer.File[] }
 ) => {
-  // 1. Check Product Existence
-  const currentProduct = await prisma.product.findUnique({
+  const existingProduct = await prisma.product.findUnique({
     where: { id: productId },
     include: {
-      colors: { include: { images: true } },
-      variants: { include: { images: true } },
+      variants: {
+        include: {
+          variantItems: true,
+          images: true,
+        },
+      },
     },
   });
 
-  if (!currentProduct || currentProduct.isDeleted) {
+  if (!existingProduct) {
     throw new Error("Product not found!");
   }
 
-  // 2. Category Check (If categoryId is provided)
-  if (payload.categoryId) {
-    const category = await prisma.category.findUnique({
-      where: { id: payload.categoryId },
-    });
-    if (!category || category.isDeleted) {
-      throw new Error("Invalid or inactive category selected!");
-    }
+  const category = await prisma.category.findUnique({
+    where: { id: payload.categoryId },
+  });
+
+  if (!category || category.isDeleted || category.status !== CategoryStatus.ACTIVE) {
+    throw new Error("Invalid or inactive category selected!");
   }
 
-  // 3. Database Operation via Prisma Transaction
   return await prisma.$transaction(async (tx) => {
-    // Handling Thumbnail Image Replacement
-    let updatedThumbnail = currentProduct.thumbnailImage;
-    if (
-      payload.thumbnailImage &&
-      payload.thumbnailImage !== currentProduct.thumbnailImage
-    ) {
-      removeOldFile(currentProduct.thumbnailImage);
-      updatedThumbnail = payload.thumbnailImage;
+    // 🛑 ১. Thumbnail চেঞ্জ হলে পুরানো ফাইল ডিলিট
+    if (payload.thumbnailImage && payload.thumbnailImage !== existingProduct.thumbnailImage) {
+      removeLocalFile(existingProduct.thumbnailImage);
     }
 
-    // Update Base Product Record
-    await tx.product.update({
+    // মূল প্রোডাক্ট ডাটা আপডেট
+    const updatedProduct = await tx.product.update({
       where: { id: productId },
       data: {
-        name: payload.name || currentProduct.name,
-        thumbnailImage: updatedThumbnail,
-        shortDescription:
-          payload.shortDescription !== undefined
-            ? payload.shortDescription
-            : currentProduct.shortDescription,
-        description:
-          payload.description !== undefined
-            ? payload.description
-            : currentProduct.description,
-        brand:
-          payload.brand !== undefined
-            ? payload.brand
-            : currentProduct.brand,
-        categoryId: payload.categoryId || currentProduct.categoryId,
-        updatedById: updatedById,
+        name: payload.name,
+        thumbnailImage: payload.thumbnailImage,
+        shortDescription: payload.shortDescription || null,
+        description: payload.description || null,
+        brand: payload.brand || null,
+        categoryId: payload.categoryId,
+        isActive: String(payload.isActive) === "true",
       },
     });
 
-    // ===================================================
-    // CASE A: SINGLE PRODUCT UPDATE
-    // ===================================================
-    if (currentProduct.productType === ProductType.SINGLE) {
-      const existingVariant = currentProduct.variants[0];
-
-      const cost =
-        payload.costPrice !== undefined
-          ? Number(payload.costPrice)
-          : Number(existingVariant?.costPrice || 0);
-      const sell =
-        payload.sellPrice !== undefined
-          ? Number(payload.sellPrice)
-          : Number(existingVariant?.sellPrice || 0);
-
-      if (sell < cost) {
-        throw new Error("Sell price cannot be less than cost price!");
-      }
-
+    // CASE A: SINGLE PRODUCT LOGIC
+    if (payload.productType === ProductType.SINGLE) {
+      const cost = Number(payload.costPrice);
+      const sell = Number(payload.sellPrice);
       const profit = sell - cost;
-      let colorId = currentProduct.colors[0]?.id || null;
+      const firstVariant = existingProduct.variants[0];
 
-      // Color Update/Create
-      if (payload.colorCode) {
-        if (colorId) {
-          await tx.productColor.update({
-            where: { id: colorId },
-            data: { colorCode: payload.colorCode },
+      let targetVariantId: string;
+
+      if (firstVariant) {
+        targetVariantId = firstVariant.id;
+        await tx.productVariant.update({
+          where: { id: firstVariant.id },
+          data: { colorCode: payload.colorCode || null },
+        });
+
+        const firstItem = firstVariant.variantItems[0];
+        const autoVariantName = `${updatedProduct.name.slice(0, 3).toUpperCase()}-${payload.size || 'REG'}-${Math.floor(100 + Math.random() * 900)}`;
+
+        if (firstItem) {
+          await tx.variantItem.update({
+            where: { id: firstItem.id },
+            data: {
+              size: payload.size || null,
+              costPrice: cost,
+              sellPrice: sell,
+              profit: profit,
+              stock: Number(payload.stock),
+              isActive: String(payload.isActive) === "true",
+            },
           });
         } else {
-          const newColor = await tx.productColor.create({
-            data: { productId, colorCode: payload.colorCode },
-          });
-          colorId = newColor.id;
-        }
-      }
-
-      // Single Variant Data Update
-      if (existingVariant) {
-        await tx.productVariant.update({
-          where: { id: existingVariant.id },
-          data: {
-            colorId,
-            size:
-              payload.size !== undefined
-                ? payload.size
-                : existingVariant.size,
-            costPrice: cost,
-            minimumPrice:
-              payload.minPrice !== undefined
-                ? Number(payload.minPrice)
-                : existingVariant.minimumPrice,
-            maximumPrice:
-              payload.maxPrice !== undefined
-                ? Number(payload.maxPrice)
-                : existingVariant.maximumPrice,
-            sellPrice: sell,
-            profit: profit,
-            stock:
-              payload.stock !== undefined
-                ? Number(payload.stock)
-                : existingVariant.stock,
-            vatPercent:
-              payload.vatPercent !== undefined
-                ? Number(payload.vatPercent)
-                : existingVariant.vatPercent,
-            discountPercent:
-              payload.discountPercent !== undefined
-                ? Number(payload.discountPercent)
-                : existingVariant.discountPercent,
-          },
-        });
-      }
-
-      // Single Product Gallery Images Update (Delete Old & Add New)
-      if (payload.images && payload.images.length > 0) {
-        // Cleaning up old images from the disk and database using a relation filter
-        const oldImages = await tx.productImage.findMany({
-          where: {
-            variant: {
-              productId: productId,
+          await tx.variantItem.create({
+            data: {
+              variantId: firstVariant.id,
+              varientName: autoVariantName,
+              size: payload.size || null,
+              costPrice: cost,
+              sellPrice: sell,
+              profit: profit,
+              stock: Number(payload.stock),
+              isActive: String(payload.isActive) === "true",
             },
-          },
-        });
+          });
+        }
 
-        oldImages.forEach((img) => removeOldFile(img.productImage));
+        // 🛑 ২. Single Product-এর পুরানো মুছে ফেলা ছবিগুলো সার্ভার থেকে রিমুভ
+        const existingImages = payload.existingImages || [];
+        const imagesToDelete = firstVariant.images.filter(
+          (img) => !existingImages.includes(img.productImage)
+        );
+
+        imagesToDelete.forEach((img) => removeLocalFile(img.productImage));
 
         await tx.productImage.deleteMany({
           where: {
-            variant: {
-              productId: productId,
+            variantId: targetVariantId,
+            productImage: { notIn: existingImages },
+          },
+        });
+      } else {
+        const autoVariantName = `${updatedProduct.name.slice(0, 3).toUpperCase()}-${payload.size || 'REG'}-${Math.floor(100 + Math.random() * 900)}`;
+        const newVariant = await tx.productVariant.create({
+          data: {
+            productId: updatedProduct.id,
+            colorCode: payload.colorCode || null,
+            variantItems: {
+              create: {
+                varientName: autoVariantName,
+                size: payload.size || null,
+                costPrice: cost,
+                sellPrice: sell,
+                profit: profit,
+                stock: Number(payload.stock),
+                isActive: String(payload.isActive) === "true",
+              },
             },
           },
         });
+        targetVariantId = newVariant.id;
+      }
 
-        // Insert new image into the database (excluding productId)
-        const imageRecords = payload.images.map((imagePath) => ({
-          productImage: imagePath,
-          colorId,
-          variantId: existingVariant?.id || null,
+      // নতুন আপলোড করা ইমেজ সেভ
+      const newFiles = groupedFiles.productImage || [];
+      if (newFiles.length > 0) {
+        const imageRecords = newFiles.map((f) => ({
+          productImage: `/uploads/${f.filename}`,
+          variantId: targetVariantId,
         }));
 
         await tx.productImage.createMany({ data: imageRecords });
       }
     }
 
-    // ===================================================
-    // CASE B: VARIANT PRODUCT UPDATE
-    // ===================================================
-    if (
-      currentProduct.productType === ProductType.VARIANT &&
-      payload.variants
-    ) {
-      // 1. Clean old images from disk (via relation filter)
-      const existingImages = await tx.productImage.findMany({
-        where: {
-          variant: {
-            productId: productId,
-          },
-        },
-      });
-      existingImages.forEach((img) => removeOldFile(img.productImage));
+    // CASE B: VARIANT PRODUCT LOGIC
+    if (payload.productType === ProductType.VARIANT) {
+      const parsedVariants = payload.variants || [];
 
-      // 2. Clear old relational records safely
-      await tx.productImage.deleteMany({
-        where: {
-          variant: {
-            productId: productId,
-          },
-        },
-      });
-      await tx.productVariant.deleteMany({ where: { productId } });
-      await tx.productColor.deleteMany({ where: { productId } });
+      for (let i = 0; i < parsedVariants.length; i++) {
+        const variantBlock = parsedVariants[i];
+        let targetVariantId: string;
+        const isExistingVariant = variantBlock.id && typeof variantBlock.id === "string" && !variantBlock.id.startsWith("new_");
 
-      const colorSet = new Set<string>();
-
-      for (const variantBlock of payload.variants) {
-
-        if (variantBlock.colorCode) {
-          const lowerColor = variantBlock.colorCode.toLowerCase();
-          if (colorSet.has(lowerColor)) {
-            throw new Error(
-              `Duplicate color code '${variantBlock.colorCode}' is not allowed!`
-            );
-          }
-          colorSet.add(lowerColor);
-        }
-
-        let colorId: string | null = null;
-        if (variantBlock.colorCode) {
-          const createdColor = await tx.productColor.create({
-            data: { productId, colorCode: variantBlock.colorCode },
+        if (isExistingVariant) {
+          targetVariantId = String(variantBlock.id);
+          await tx.productVariant.update({
+            where: { id: targetVariantId },
+            data: { colorCode: variantBlock.colorCode || null },
           });
-          colorId = createdColor.id;
-        }
 
-        const sizeSet = new Set<string>();
-
-        for (const opt of variantBlock.options) {
-          if (opt.size) {
-            const lowerSize = opt.size.toLowerCase();
-            if (sizeSet.has(lowerSize)) {
-              throw new Error(
-                `Duplicate size '${opt.size}' found under same color!`
-              );
-            }
-            sizeSet.add(lowerSize);
+          // 🛑 ৩. Variant Product-এর পুরানো মুছে ফেলা ছবিগুলো সার্ভার থেকে রিমুভ
+          const existingVariantImages = variantBlock.existingImages || [];
+          const oldVariantRecord = existingProduct.variants.find((v) => v.id === targetVariantId);
+          
+          if (oldVariantRecord) {
+            const variantImagesToDelete = oldVariantRecord.images.filter(
+              (img) => !existingVariantImages.includes(img.productImage)
+            );
+            variantImagesToDelete.forEach((img) => removeLocalFile(img.productImage));
           }
 
-          const cost = Number(opt.costPrice);
-          const sell = Number(opt.sellPrice);
-          if (sell < cost)
-            throw new Error("Sell price cannot be less than cost price!");
-
-          const productNameToUse = payload.name || currentProduct.name;
-          const autoVariantName =
-            opt.variantName ||
-            `${productNameToUse
-              .slice(0, 3)
-              .toUpperCase()}-${Math.floor(10 + Math.random() * 90)}`;
-
-          const createdVariant = await tx.productVariant.create({
-            data: {
-              productId,
-              colorId,
-              size: opt.size || null,
-              varientName: autoVariantName,
-              costPrice: cost,
-              minimumPrice: opt.minPrice ? Number(opt.minPrice) : null,
-              maximumPrice: opt.maxPrice ? Number(opt.maxPrice) : null,
-              sellPrice: sell,
-              profit: sell - cost,
-              stock: Number(opt.stock),
-              vatPercent: opt.vatPercent ? Number(opt.vatPercent) : 0,
-              discountPercent: opt.discountPercent
-                ? Number(opt.discountPercent)
-                : 0,
+          await tx.productImage.deleteMany({
+            where: {
+              variantId: targetVariantId,
+              productImage: { notIn: existingVariantImages },
             },
           });
+        } else {
+          const newVariant = await tx.productVariant.create({
+            data: {
+              productId: updatedProduct.id,
+              colorCode: variantBlock.colorCode || null,
+            },
+          });
+          targetVariantId = newVariant.id;
+        }
 
-          // Option-specific images handle
-          if (opt.images && opt.images.length > 0) {
-            const imageRecords = opt.images.map((imagePath: string) => ({
-              productImage: imagePath,
-              colorId,
-              variantId: createdVariant.id,
-            }));
-            await tx.productImage.createMany({ data: imageRecords });
+        // Options Update
+        const optionsList = variantBlock.options || [];
+        for (const opt of optionsList) {
+          const cost = Number(opt.costPrice);
+          const sell = Number(opt.sellPrice);
+          const profit = sell - cost;
+          const autoVariantName =
+            opt.varientName ||
+            `${updatedProduct.name.slice(0, 3).toUpperCase()}-${opt.size || 'VAR'}-${Math.floor(10 + Math.random() * 90)}`;
+
+          const isExistingItem = opt.id && typeof opt.id === "string" && !opt.id.startsWith("new_item_");
+
+          if (isExistingItem) {
+            await tx.variantItem.update({
+              where: { id: String(opt.id) },
+              data: {
+                varientName: autoVariantName,
+                size: opt.size || null,
+                costPrice: cost,
+                sellPrice: sell,
+                profit: profit,
+                stock: Number(opt.stock),
+                isActive: String(opt.isActive) === "true" || opt.isActive === true,
+              },
+            });
+          } else {
+            await tx.variantItem.create({
+              data: {
+                variantId: targetVariantId,
+                varientName: autoVariantName,
+                size: opt.size || null,
+                costPrice: cost,
+                sellPrice: sell,
+                profit: profit,
+                stock: Number(opt.stock),
+                isActive: String(opt.isActive) === "true" || opt.isActive === true,
+              },
+            });
           }
         }
 
-        // Color-level images handle
-        if (
-          variantBlock.images &&
-          variantBlock.images.length > 0 &&
-          !variantBlock.options[0]?.images
-        ) {
-          const imageRecords = variantBlock.images.map((imagePath: string) => ({
-            productImage: imagePath,
-            colorId,
-            variantId: null,
+        // নতুন ইমেজ যোগ
+        const newVariantFiles = groupedFiles[`variant_images_${i}`] || [];
+        if (newVariantFiles.length > 0) {
+          const imageRecords = newVariantFiles.map((f) => ({
+            productImage: `/uploads/${f.filename}`,
+            variantId: targetVariantId,
           }));
+
           await tx.productImage.createMany({ data: imageRecords });
         }
       }
     }
 
-    // Return updated product details using transaction client
     return await tx.product.findUnique({
       where: { id: productId },
       include: {
         category: true,
-        colors: { include: { images: true } },
-        variants: { include: { images: true } },
+        variants: {
+          include: {
+            images: true,
+            variantItems: true,
+          },
+        },
       },
     });
   });
 };
 
+
+// product related
 
 // updateProductStatusService
-export const updateProductStatusService = async (id: string, isActive: boolean) => {
-  // 1. Check if product exists
+export const updateProductStatusService = async (id: string, status: string) => {
+  const isActive = status === "ACTIVE";
+
+  // Browse products
   const product = await prisma.product.findUnique({
     where: { id },
-  });
-
-  if (!product || product.isDeleted) {
-    throw new Error("Product not found!");
-  }
-
-  // 2. Cascade status update using Prisma Transaction
-  return await prisma.$transaction(async (tx) => {
-    // Update main product status
-    const updatedProduct = await tx.product.update({
-      where: { id },
-      data: { isActive },
-      select: {
-        id: true,
-        name: true,
-        isActive: true,
-        updatedAt: true,
+    include: {
+      variants: {
+        include: {
+          variantItems: true,
+        },
       },
-    });
-
-    // Update status of all variants belonging to this product
-    await tx.productVariant.updateMany({
-      where: { productId: id },
-      data: { isActive },
-    });
-
-    return updatedProduct;
-  });
-};
-
-// softDeleteProductService
-export const softDeleteProductService = async (id: string) => {
-  // Checking product availability
-  const product = await prisma.product.findUnique({
-    where: { id },
+    },
   });
 
   if (!product) {
     throw new Error("Product not found!");
   }
 
-  if (product.isDeleted) {
-    throw new Error("Product is already deleted!");
-  }
+  // If the product type is 'SINGLE', update the product, its sole variant, and the item together
+  if (product.productType === "SINGLE") {
+    const updatedProduct = await prisma.$transaction(async (tx) => {
 
-  const now = new Date();
+      // Core Product Update
+      const prod = await tx.product.update({
+        where: { id },
+        data: { isActive },
+      });
 
-  // Soft-deleting a product and its child data using a transaction.
-  const result = await prisma.$transaction(async (tx) => {
+      // Associated variant and item updates
+      const variant = product.variants[0];
+      if (variant) {
+        await tx.productVariant.update({
+          where: { id: variant.id },
+          data: { isActive },
+        });
 
-    // Product Update (isDeleted: true)
-    const updatedProduct = await tx.product.update({
-      where: { id },
-      data: {
-        isDeleted: true,
-        deletedAt: now,
-      },
-      select: {
-        id: true,
-        name: true,
-        isDeleted: true,
-        deletedAt: true,
-        updatedAt: true,
-      },
-    });
+        await tx.variantItem.updateMany({
+          where: { variantId: variant.id },
+          data: { isActive },
+        });
+      }
 
-    // Soft delete all variants under the product
-    await tx.productVariant.updateMany({
-      where: { productId: id },
-      data: {
-        isDeleted: true,
-        deletedAt: now,
-      },
+      return prod;
     });
 
     return updatedProduct;
+  }
+
+  // If it is a VARIANT type, only the main product's status is updated
+  const result = await prisma.product.update({
+    where: { id },
+    data: { isActive },
   });
 
   return result;
+};
+
+// deleteProductService
+export const deleteProductService = async (id: string) => {
+  // Check if product exists
+  const product = await prisma.product.findUnique({
+    where: { id },
+    include: {
+      variants: {
+        include: {
+          variantItems: true,
+        },
+      },
+    },
+  });
+
+  if (!product) {
+    throw new Error("Product not found!");
+  }
+
+  // Soft delete product along with its variants and items using transaction
+  const deletedProduct = await prisma.$transaction(async (tx) => {
+    // 1. Soft delete the main product
+    const prod = await tx.product.update({
+      where: { id },
+      data: { isDeleted: true },
+    });
+
+    // 2. Soft delete all associated variants and variant items
+    if (product.variants.length > 0) {
+      const variantIds = product.variants.map((variant) => variant.id);
+
+      // Soft delete associated variant items
+      await tx.variantItem.updateMany({
+        where: { variantId: { in: variantIds } },
+        data: { isDeleted: true },
+      });
+
+      // Soft delete associated variants
+      await tx.productVariant.updateMany({
+        where: { productId: id },
+        data: { isDeleted: true },
+      });
+    }
+    return prod;
+  });
+
+  return deletedProduct;
 };
 
 // restoreProductService
 export const restoreProductService = async (id: string) => {
-  // Checking product availability
+  // Check if product exists
   const product = await prisma.product.findUnique({
     where: { id },
+    include: {
+      variants: {
+        include: {
+          variantItems: true,
+        },
+      },
+    },
   });
 
   if (!product) {
     throw new Error("Product not found!");
   }
 
-  if (!product.isDeleted) {
-    throw new Error("Product is not deleted!");
-  }
-
-  // Restoring a product and its child variants via a transaction.
-  const result = await prisma.$transaction(async (tx) => {
-    // Restore product (isDeleted: false, deletedAt: null)
-    const restoredProduct = await tx.product.update({
+  // Restore product along with its variants and items using transaction
+  const restoredProduct = await prisma.$transaction(async (tx) => {
+    // 1. Restore the main product
+    const prod = await tx.product.update({
       where: { id },
-      data: {
-        isDeleted: false,
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        name: true,
-        isDeleted: true,
-        deletedAt: true,
-        updatedAt: true,
-      },
+      data: { isDeleted: false },
     });
 
-    // Restoring all variants under the product
-    await tx.productVariant.updateMany({
-      where: { productId: id },
-      data: {
-        isDeleted: false,
-        deletedAt: null,
-      },
-    });
+    // 2. Restore all associated variants and variant items
+    if (product.variants.length > 0) {
+      const variantIds = product.variants.map((variant) => variant.id);
 
-    return restoredProduct;
+      // Restore associated variant items (variantId ব্যবহার করা হয়েছে)
+      await tx.variantItem.updateMany({
+        where: { variantId: { in: variantIds } },
+        data: { isDeleted: false },
+      });
+
+      // Restore associated variants
+      await tx.productVariant.updateMany({
+        where: { productId: id },
+        data: { isDeleted: false },
+      });
+    }
+
+    return prod;
   });
 
-  return result;
+  return restoredProduct;
 };
 
 
-// updateColorStatusService
-export const updateColorStatusService = async (productId: string, colorId: string,isActive: boolean ) => {
-  // Checking if there is at least one variant under the specific product and color
-  const existingVariant = await prisma.productVariant.findFirst({
-    where: {
-      productId,
-      colorId,
-      isDeleted: false,
-    },
-  });
 
-  if (!existingVariant) {
-    throw new Error("No active variants found for this color!");
-  }
+// product variant related
 
-  // Bulk update the isActive status of all sizes/variants matching the given productId and colorId
-  const updatedVariants = await prisma.productVariant.updateMany({
-    where: {
-      productId,
-      colorId,
-      isDeleted: false,
-    },
-    data: {
-      isActive,
-    },
-  });
+// updateProductVariantStatusService
+export const updateProductVariantStatusService = async (variantId: string, status: string) => {
+  const isActive = status === "ACTIVE";
 
-  return updatedVariants;
-};
-
-
-// softDeleteColorService
-export const softDeleteColorService = async ( productId: string, colorId: string ) => {
-  // Checking product availability
-  const product = await prisma.product.findUnique({
-    where: { id: productId },
-  });
-
-  if (!product) {
-    throw new Error("Product not found!");
-  }
-
-  // Checking color availability
-  const color = await prisma.productColor.findFirst({
-    where: { id: colorId, productId },
-  });
-
-  if (!color) {
-    throw new Error("Color not found for this product!");
-  }
-
-  const now = new Date();
-
-  // Soft-deleting color variants under the specific product and color using transaction
-  const result = await prisma.$transaction(async (tx) => {
-    // Soft delete all variants for this specific color
-    const variantsUpdate = await tx.productVariant.updateMany({
-      where: {
-        productId,
-        colorId,
-        isDeleted: false,
-      },
-      data: {
-        isDeleted: true,
-        deletedAt: now,
-      },
+  // Updating the status of the variant and the status of all items associated with that variant
+  const updatedVariant = await prisma.$transaction(async (tx) => {
+    const variant = await tx.productVariant.update({
+      where: { id: variantId },
+      data: { isActive },
     });
 
-    return {
-      productId,
-      colorId,
-      count: variantsUpdate.count,
-    };
-  });
-
-  return result;
-};
-
-
-// restoreColorService
-export const restoreColorService = async (productId: string,colorId: string
-) => {
-  // Checking product availability
-  const product = await prisma.product.findUnique({
-    where: { id: productId },
-  });
-
-  if (!product) {
-    throw new Error("Product not found!");
-  }
-
-  // Checking color availability
-  const color = await prisma.productColor.findFirst({
-    where: { id: colorId, productId },
-  });
-
-  if (!color) {
-    throw new Error("Color not found for this product!");
-  }
-
-  // Restoring all soft-deleted variants under the specific product and color via transaction
-  const result = await prisma.$transaction(async (tx) => {
-    // Restore variants (isDeleted: false, deletedAt: null)
-    const variantsUpdate = await tx.productVariant.updateMany({
-      where: {
-        productId,
-        colorId,
-        isDeleted: true, // Only the items that were soft-deleted will be restored
-      },
-      data: {
-        isDeleted: false,
-        deletedAt: null,
-      },
+    await tx.variantItem.updateMany({
+      where: { variantId },
+      data: { isActive },
     });
 
-    return {
-      productId,
-      colorId,
-      count: variantsUpdate.count,
-    };
-  });
-
-  return result;
-};
-
-
-// updateVariantStatusService
-export const updateVariantStatusService = async (variantId: string, isActive: boolean ) => {
-  // Check if variant exists and is not deleted
-  const variant = await prisma.productVariant.findUnique({
-    where: { id: variantId },
-  });
-
-  if (!variant || variant.isDeleted) {
-    throw new Error("Variant not found!");
-  }
-
-  // Update specific variant status
-  const updatedVariant = await prisma.productVariant.update({
-    where: { id: variantId },
-    data: { isActive },
-    select: {
-      id: true,
-      varientName: true,
-      size: true,
-      isActive: true,
-      updatedAt: true,
-    },
+    return variant;
   });
 
   return updatedVariant;
 };
 
 
-// softDeleteVariantService
-export const softDeleteVariantService = async (variantId: string) => {
-  // Checking variant availability
-  const variant = await prisma.productVariant.findUnique({
-    where: { id: variantId },
+// deleteProductVariantService
+export const deleteProductVariantService = async (productId: string, variantId: string) => {
+  // 1. Check if variant exists
+  const variant = await prisma.productVariant.findFirst({
+    where: {
+      id: variantId,
+      productId: productId,
+    },
+    include: {
+      variantItems: true,
+    },
   });
 
   if (!variant) {
-    throw new Error("Variant not found!");
+    throw new Error("Product variant not found!");
   }
 
-  if (variant.isDeleted) {
-    throw new Error("Variant is already deleted!");
-  }
+  // Soft delete variant and its items using transaction
+  const deletedVariant = await prisma.$transaction(async (tx) => {
+    // Soft delete associated variant items/sizes
+    if (variant.variantItems && variant.variantItems.length > 0) {
+      await tx.variantItem.updateMany({
+        where: { variantId: variantId },
+        data: { isDeleted: true },
+      });
+    }
 
-  const now = new Date();
+    // Soft delete the variant itself
+    const updatedVariant = await tx.productVariant.update({
+      where: { id: variantId },
+      data: { isDeleted: true },
+    });
 
-  // Soft-deleting specific variant
-  const updatedVariant = await prisma.productVariant.update({
-    where: { id: variantId },
-    data: {
-      isDeleted: true,
-      deletedAt: now,
-    },
-    select: {
-      id: true,
-      varientName: true,
-      size: true,
-      isDeleted: true,
-      deletedAt: true,
-      updatedAt: true,
-    },
+    return updatedVariant;
   });
 
-  return updatedVariant;
+  return deletedVariant;
 };
 
 
-// restoreVariantService
-export const restoreVariantService = async (variantId: string) => {
-  // Checking variant availability
-  const variant = await prisma.productVariant.findUnique({
-    where: { id: variantId },
+// restoreProductVariantService
+export const restoreProductVariantService = async ( productId: string, variantId: string ) => {
+  // Check if the variant exists along with its parent product
+  const variant = await prisma.productVariant.findFirst({
+    where: {
+      id: variantId,
+      productId: productId,
+    },
+    include: {
+      product: {
+        select: {
+          isDeleted: true,
+        },
+      },
+      variantItems: true,
+    },
   });
 
   if (!variant) {
-    throw new Error("Variant not found!");
+    throw new Error("Product variant not found!");
   }
 
-  if (!variant.isDeleted) {
-    throw new Error("Variant is not deleted!");
+  // 🔴 CHECK: মেইন প্রোডাক্ট ডিলিট অবস্থায় আছে কিনা
+  if (variant.product.isDeleted) {
+    throw new Error("Your main product is deleted. Please restore the product first.");
   }
 
-  // Restoring variant (isDeleted: false, deletedAt: null)
-  const restoredVariant = await prisma.productVariant.update({
-    where: { id: variantId },
-    data: {
-      isDeleted: false,
-      deletedAt: null,
-    },
-    select: {
-      id: true,
-      varientName: true,
-      size: true,
-      isDeleted: true,
-      deletedAt: true,
-      updatedAt: true,
-    },
+  // Transaction using prisma to restore both variant and its sub-items (sizes)
+  const restoredVariant = await prisma.$transaction(async (tx) => {
+    // 1. Restore associated variant items (sizes)
+    await tx.variantItem.updateMany({
+      where: { variantId: variantId },
+      data: { isDeleted: false },
+    });
+
+    // 2. Restore the product variant
+    const updatedVariant = await tx.productVariant.update({
+      where: { id: variantId },
+      data: { isDeleted: false },
+    });
+
+    return updatedVariant;
   });
 
   return restoredVariant;
 };
 
 
-// getPublicProductsService
-export const getPublicProductsService = async () => {
-  const products = await prisma.product.findMany({
-    where: {
-      // 1. Base Product Active Check
-      isActive: true,
-      isDeleted: false,
+// product variant item related
 
-      // 2. Category Soft-Delete Check
-      category: {
-        isDeleted: false,
-      },
+// updateProductVariantItemStatusService
+export const updateProductVariantItemStatusService = async (itemId: string, status: string) => {
+  const isActive = status === "ACTIVE";
 
-      // 3. Ensure product has AT LEAST ONE active & non-deleted variant
-      variants: {
-        some: {
-          isActive: true,
-          isDeleted: false,
-        },
-      },
-    },
-    include: {
-      category: {
-        select: {
-          id: true,
-          name: true,
-          description: true,
-        },
-      },
-      // Cleaned Colors & their active variants
-      colors: {
-        include: {
-          images: true,
-          variants: {
-            where: {
-              isActive: true,
-              isDeleted: false,
-            },
-            include: {
-              images: true,
-            },
-          },
-        },
-      },
-      // Cleaned Direct Variants
-      variants: {
-        where: {
-          isActive: true,
-          isDeleted: false,
-        },
-        include: {
-          images: true,
-        },
-      },
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
+  // Check if variant item exists
+  const item = await prisma.variantItem.findUnique({
+    where: { id: itemId },
   });
 
-  return products;
+  if (!item) {
+    throw new Error("Variant item not found!");
+  }
+
+  // Updating specific variant item status
+  const updatedItem = await prisma.variantItem.update({
+    where: { id: itemId },
+    data: { isActive },
+  });
+
+  return updatedItem;
 };
 
 
-// getPublicProductByIdService
-export const getPublicProductByIdService = async (id: string) => {
-  const product = await prisma.product.findFirst({
+// deleteProductVariantItemService
+export const deleteProductVariantItemService = async (
+  productId: string,
+  variantId: string,
+  itemId: string
+) => {
+  // Check if variant item exists
+  const item = await prisma.variantItem.findUnique({
+    where: { id: itemId },
+  });
+
+  if (!item) {
+    throw new Error("Variant item not found!");
+  }
+
+  // Soft delete the specific variant item
+  const updatedVariantItem = await prisma.variantItem.update({
+    where: { id: itemId },
+    data: {
+      isDeleted: true,
+    },
+  });
+
+  return updatedVariantItem;
+};
+
+// restoreProductVariantItemService
+export const restoreProductVariantItemService = async (
+  productId: string,
+  variantId: string,
+  itemId: string
+) => {
+  // Check if item exists along with its parent variant and main product
+  const item = await prisma.variantItem.findFirst({
     where: {
-      id,
-      isActive: true,
-      isDeleted: false,
-      category: {
-        isDeleted: false,
-      },
-      variants: {
-        some: {
-          isActive: true,
-          isDeleted: false,
-        },
-      },
+      id: itemId,
+      variantId: variantId,
     },
     include: {
-      category: {
+      variant: {
         select: {
-          id: true,
-          name: true,
-          description: true,
-        },
-      },
-      colors: {
-        include: {
-          images: true,
-          variants: {
-            where: {
-              isActive: true,
-              isDeleted: false,
-            },
-            include: {
-              images: true,
+          isDeleted: true,
+          product: {
+            select: {
+              isDeleted: true,
             },
           },
-        },
-      },
-      variants: {
-        where: {
-          isActive: true,
-          isDeleted: false,
-        },
-        include: {
-          images: true,
         },
       },
     },
   });
 
-  if (!product) {
-    throw new Error('Product not found or unavailable!');
+  if (!item) {
+    throw new Error("Variant item not found!");
   }
 
-  return product;
+  // 🔴 STEP 1 CHECK: আগে চেক করা হবে মেইন প্রোডাক্ট ডিলিট আছে কিনা
+  if (item.variant.product.isDeleted) {
+    throw new Error("Your main product is deleted. Please restore the product first.");
+  }
+
+  // 🔴 STEP 2 CHECK: এরপর চেক করা হবে প্যারেন্ট ভ্যারিয়েন্ট ডিলিট আছে কিনা
+  if (item.variant.isDeleted) {
+    throw new Error("Your parent variant is deleted. Please restore the variant first.");
+  }
+
+  // Restore only the specific variant item
+  const restoredItem = await prisma.variantItem.update({
+    where: { id: itemId },
+    data: { isDeleted: false },
+  });
+
+  return restoredItem;
 };

@@ -1,272 +1,738 @@
 import { Request, Response } from "express";
 import fs from "fs";
 import path from "path";
-import { createProductService, getAllProductsService, getProductByIdService, getPublicProductByIdService, getPublicProductsService, restoreColorService, restoreProductService, restoreVariantService, softDeleteColorService, softDeleteProductService, softDeleteVariantService, updateColorStatusService, updateProductService, updateProductStatusService, updateVariantStatusService } from "../services/product.service";
+import { createProductService, deleteProductService, deleteProductVariantItemService, deleteProductVariantService, getAllProductService, getAllPublicProductsService, getSingleProductService, getSinglePublicProductService, restoreProductService, restoreProductVariantItemService, restoreProductVariantService, updateProductService, updateProductStatusService, updateProductVariantItemStatusService, updateProductVariantStatusService } from "../services/product.service";
 
-// Helper Function: To delete files from failed requests
+// Helper Function: ফাইল আপলোডে বা ডাটাবেজে এরর হলে আপলোড হওয়া ইমেজ ডিলিট করার জন্য
 const deleteUploadedFiles = (files: any) => {
   if (!files) return;
 
-  const fileList: any[] = [];
-  if (files.thumbnailImage) fileList.push(...files.thumbnailImage);
-  if (files.images) fileList.push(...files.images);
+  let fileList: any[] = [];
+
+  if (Array.isArray(files)) {
+    // rawFiles (Array) আসলে সরাসরি পুশ হবে
+    fileList = files;
+  } else if (typeof files === 'object') {
+    // groupedFiles (Object) আসলে তার সবকিছুর ভ্যালু ফ্ল্যাট হয়ে অ্যারে হবে
+    Object.values(files).forEach((item: any) => {
+      if (Array.isArray(item)) {
+        fileList.push(...item);
+      }
+    });
+  }
 
   fileList.forEach((file) => {
-    const filePath = path.join(process.cwd(), "public/uploads", file.filename);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath); // It will delete the file from the folder
+    if (file && file.filename) {
+      const filePath = path.join(__dirname, '../../public/uploads', file.filename);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
     }
   });
 };
 
+// getAllPublicProduct
+export const getAllPublicProduct = async (req: Request, res: Response): Promise<void> => {
+  try{
+    const category = req.query.category as string | undefined;
+    const searchTerm = req.query.searchTerm as string | undefined;
+
+    const result = await getAllPublicProductsService({ category, searchTerm });
+
+    res.status(200).json({
+      success: true,
+      message: 'Public products retrieved successfully',
+      statusCode: 200,
+      data: result,
+    });
+    return;
+
+  }catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
+    });
+    return;
+  }
+}
+
+// getSinglePublicProduct
+export const getSinglePublicProduct = async (req: Request, res: Response): Promise<void> => {
+  try{
+
+    const { id } = req.params;
+
+    const result = await getSinglePublicProductService({id: id as string});
+
+    if (!result) {
+      res.status(404).json({
+        success: false,
+        message: 'Product not found',
+        statusCode: 404,
+        data: null,
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Product details retrieved successfully',
+      statusCode: 200,
+      data: result,
+    });
+    return;
+
+  }catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
+    });
+    return;
+  }
+}
+
 // createProduct
 export const createProduct = async (req: Request, res: Response): Promise<void> => {
-  const files = (req as any).files;
+  const rawFiles = (req as any).files as Express.Multer.File[] | undefined;
+
+  console.log("=== BACKEND RECEIVED RAW FILES ===", rawFiles);
+  console.log("=== BACKEND RECEIVED PAYLOAD ===", req.body);
 
   try {
     const createdById = (req as any).user?.id;
     let payload = { ...req.body };
 
-    // Product Thumbnail Image Check (Mandatory)
-    if (!files?.thumbnailImage?.[0]) {
-      throw new Error("Product thumbnail image is required!");
-    } else {
-      payload.thumbnailImage = `/uploads/${files.thumbnailImage[0].filename}`;
+    // 🛠️ upload.any() থেকে আসা ফাইলগুলোকে ফিল্ডওয়াইজ অবজেক্টে গ্রুপ করা
+    const groupedFiles: { [key: string]: Express.Multer.File[] } = {};
+    if (Array.isArray(rawFiles)) {
+      rawFiles.forEach((file) => {
+        if (!groupedFiles[file.fieldname]) {
+          groupedFiles[file.fieldname] = [];
+        }
+        groupedFiles[file.fieldname].push(file);
+      });
     }
 
-    // Safe JSON Parsing with User-Friendly Error Messages
-    if (typeof payload.variants === "string") {
+    // ১. Thumbnail Check (সব ধরণের প্রোডাক্টের জন্য বাধ্যতামূলক)
+    if (!groupedFiles?.thumbnailImage?.[0]) {
+      deleteUploadedFiles(rawFiles);
+      res.status(400).json({
+        success: false,
+        statusCode: 400,
+        message: 'Product thumbnail image is required!',
+        data: null,
+      });
+      return;
+    }
+
+    // ২. Mandatory Field Check
+    if (!payload.name || !payload.categoryId || !payload.productType) {
+      deleteUploadedFiles(rawFiles);
+      res.status(400).json({
+        success: false,
+        statusCode: 400,
+        message: 'Product name, categoryId, and productType are required!',
+        data: null,
+      });
+      return;
+    }
+
+    payload.thumbnailImage = `/uploads/${groupedFiles.thumbnailImage[0].filename}`;
+
+    // ৩. Variants Parsing
+    if (payload.variants) {
       try {
-        payload.variants = JSON.parse(payload.variants);
+        if (typeof payload.variants === 'string') {
+          payload.variants = JSON.parse(payload.variants);
+        } else if (Array.isArray(payload.variants) && typeof payload.variants[0] === 'string') {
+          payload.variants = JSON.parse(payload.variants[0]);
+        }
       } catch (err) {
-        throw new Error("Please provide valid variant details!");
+        deleteUploadedFiles(rawFiles);
+        res.status(400).json({
+          success: false,
+          statusCode: 400,
+          message: 'Please provide valid variant details!',
+          data: null,
+        });
+        return;
       }
     }
 
-    if (typeof payload.images === "string") {
-      try {
-        payload.images = JSON.parse(payload.images);
-      } catch (err) {
-        throw new Error("Please upload or provide valid product images!");
+    // ৪. SINGLE Product Validation & Check
+    if (payload.productType === 'SINGLE') {
+      if (!groupedFiles?.productImage || groupedFiles.productImage.length === 0) {
+        deleteUploadedFiles(rawFiles);
+        res.status(400).json({
+          success: false,
+          statusCode: 400,
+          message: 'At least one product gallery image is required!',
+          data: null,
+        });
+        return;
       }
+
+      if (
+        payload.costPrice === undefined ||
+        payload.sellPrice === undefined ||
+        payload.stock === undefined
+      ) {
+        deleteUploadedFiles(rawFiles);
+        res.status(400).json({
+          success: false,
+          statusCode: 400,
+          message: 'Cost price, sell price, and stock are required for single product!',
+          data: null,
+        });
+        return;
+      }
+
+      const costPrice = Number(payload.costPrice);
+      const sellPrice = Number(payload.sellPrice);
+      const stock = Number(payload.stock);
+
+      if (costPrice < 0 || sellPrice < 0 || stock < 0) {
+        deleteUploadedFiles(rawFiles);
+        res.status(400).json({
+          success: false,
+          statusCode: 400,
+          message: 'Cost price, sell price, and stock cannot be negative numbers!',
+          data: null,
+        });
+        return;
+      }
+
+      if (sellPrice < costPrice) {
+        deleteUploadedFiles(rawFiles);
+        res.status(400).json({
+          success: false,
+          statusCode: 400,
+          message: 'Sell price cannot be less than cost price!',
+          data: null,
+        });
+        return;
+      }
+
+      payload.costPrice = costPrice;
+      payload.sellPrice = sellPrice;
+      payload.stock = stock;
+      payload.images = groupedFiles.productImage.map((f: any) => `/uploads/${f.filename}`);
     }
 
-    // Multer Multiple Files Upload (Gallery / Variant Images Mapping)
-    if (files?.images && files.images.length > 0) {
-      payload.images = files.images.map((f: any) => `/uploads/${f.filename}`);
-    }
+    // ৫. VARIANT Product Validation
+    if (payload.productType === 'VARIANT') {
+      if (!payload.variants || !Array.isArray(payload.variants) || payload.variants.length === 0) {
+        deleteUploadedFiles(rawFiles);
+        res.status(400).json({
+          success: false,
+          statusCode: 400,
+          message: 'At least one variant block is required for variant product!',
+          data: null,
+        });
+        return;
+      }
 
-    // Check Variant Images Validation (Each variant block must contain at least one image)
-    if (payload.productType === "VARIANT" && Array.isArray(payload.variants)) {
-      for (const variantBlock of payload.variants) {
-        if (!variantBlock.images || !Array.isArray(variantBlock.images) || variantBlock.images.length === 0) {
-          throw new Error("Please upload at least one image for each variant!");
+      for (let i = 0; i < payload.variants.length; i++) {
+        const variantBlock = payload.variants[i];
+        const optionsList = variantBlock.options || variantBlock.items;
+
+        if (!optionsList || !Array.isArray(optionsList) || optionsList.length === 0) {
+          deleteUploadedFiles(rawFiles);
+          res.status(400).json({
+            success: false,
+            statusCode: 400,
+            message: `Variant #${i + 1} must contain options!`,
+            data: null,
+          });
+          return;
+        }
+
+        for (const opt of optionsList) {
+          if (opt.costPrice === undefined || opt.sellPrice === undefined || opt.stock === undefined) {
+            deleteUploadedFiles(rawFiles);
+            res.status(400).json({
+              success: false,
+              statusCode: 400,
+              message: 'Cost price, sell price, and stock are required for each variant option!',
+              data: null,
+            });
+            return;
+          }
+
+          const costPrice = Number(opt.costPrice);
+          const sellPrice = Number(opt.sellPrice);
+          const stock = Number(opt.stock);
+
+          if (costPrice < 0 || sellPrice < 0 || stock < 0) {
+            deleteUploadedFiles(rawFiles);
+            res.status(400).json({
+              success: false,
+              statusCode: 400,
+              message: 'Cost price, sell price, and stock cannot be negative numbers in variants!',
+              data: null,
+            });
+            return;
+          }
+
+          if (sellPrice < costPrice) {
+            deleteUploadedFiles(rawFiles);
+            res.status(400).json({
+              success: false,
+              statusCode: 400,
+              message: 'Sell price cannot be less than cost price in variants!',
+              data: null,
+            });
+            return;
+          }
+
+          opt.costPrice = costPrice;
+          opt.sellPrice = sellPrice;
+          opt.stock = stock;
         }
       }
     }
 
-    // Number & Boolean Parsing for Form-Data
-    if (payload.isActive !== undefined) {
-      payload.isActive = payload.isActive === "true" || payload.isActive === true;
-    }
-
-    if (payload.minPrice) payload.minPrice = Number(payload.minPrice);
-    if (payload.maxPrice) payload.maxPrice = Number(payload.maxPrice);
-    if (payload.costPrice) payload.costPrice = Number(payload.costPrice);
-    if (payload.sellPrice) payload.sellPrice = Number(payload.sellPrice);
-    if (payload.stock) payload.stock = Number(payload.stock);
-    if (payload.vatPercent) payload.vatPercent = Number(payload.vatPercent);
-    if (payload.discountPercent) payload.discountPercent = Number(payload.discountPercent);
-    if (payload.profit) payload.profit = Number(payload.profit);
-
-    const result = await createProductService(createdById, payload);
+    // সার্ভিস কল (rawFiles পাস করা হলো যা দিয়ে সার্ভিস লেয়ার বাকি ইমেজ ভ্যালিডেশন করবে)
+    const result = await createProductService(createdById, payload, rawFiles);
 
     res.status(201).json({
       success: true,
-      message: "Product created successfully!",
-      data: result,
-    });
-  } catch (error: any) {
-    // CLEANUP: Deletes uploaded files if an error occurs during database operations
-    deleteUploadedFiles(files);
-
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to create product",
-    });
-  }
-};
-
-
-// getAllProducts
-export const getAllProducts = async (req: Request, res: Response): Promise<void> => {
-  try {
-    // Receiving isDeleted and searchTerm from (req.query)
-    const filters = {
-      isDeleted: req.query.isDeleted as string | undefined,
-      searchTerm: req.query.searchTerm as string | undefined,
-    };
-
-    const result = await getAllProductsService(filters);
-
-    res.status(200).json({
-      success: true,
-      message: "Products retrieved successfully!",
+      statusCode: 201,
+      message: 'Product created successfully!',
       data: result,
     });
     return;
+
   } catch (error: any) {
+    // যেকোনো ব্যাকএন্ড বা ডাটাবেজ এরর হলে আপলোড হওয়া ইমেজগুলো সার্ভার থেকে মুছে যাবে
+    deleteUploadedFiles(rawFiles);
+
     res.status(500).json({
       success: false,
-      message: error.message || "Failed to fetch products!",
+      message: error.message || 'Something went wrong',
+      statusCode: 500,
+      data: null
     });
     return;
   }
 };
 
+// get all product
+export const getAllProduct = async (req: Request, res: Response): Promise<void> => {
+  try{
+    // Retrieving parameters from the URL query
+    const isDeleted = req.query.isDeleted === 'true';
+    const searchTerm = req.query.searchTerm as string | undefined;
 
-// getProductById
-export const getProductById = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const result = await getProductByIdService(id as string);
+    // Sending data to the service layer for processing
+    const result = await getAllProductService({ isDeleted, searchTerm });
 
+    // Sending a successful response to the client
     res.status(200).json({
       success: true,
-      message: 'Product retrieved successfully!',
+      message: 'Products retrieved successfully',
+      statusCode: 200,
       data: result,
     });
     return;
-  } catch (error: any) {
-    res.status(404).json({
+
+  }catch (error: any) {
+    res.status(500).json({
       success: false,
-      message: error.message || 'Product not found!',
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
     });
     return;
   }
-};
+}
+
+// getSingleProduct
+export const getSingleProduct = async (req: Request, res: Response): Promise<void> => {
+  try{
+    const { id } = req.params;
+
+    const result = await getSingleProductService({ id: id as string });
+
+    res.status(200).json({
+      success: true,
+      message: "Product retrieved successfully",
+      statusCode: 200,
+      data: result,
+    });
+    return;
+
+  }catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
+    });
+    return;
+  }
+}
 
 
 // updateProduct
 export const updateProduct = async (req: Request, res: Response): Promise<void> => {
-  const files = (req as any).files;
+  const rawFiles = (req as any).files as Express.Multer.File[] | undefined;
+
+  console.log("=== BACKEND UPDATE RECEIVED RAW FILES ===", rawFiles);
+  console.log("=== BACKEND UPDATE RECEIVED PAYLOAD ===", req.body);
 
   try {
-    const { id } = req.params;
-    const updatedById = (req as any).user?.id;
+    const { id: productId } = req.params;
     let payload = { ...req.body };
 
-    // Thumbnail Image Check (Optional during update, only update if new file uploaded)
-    if (files?.thumbnailImage?.[0]) {
-      payload.thumbnailImage = `/uploads/${files.thumbnailImage[0].filename}`;
+    // ১. Product ID Check
+    if (!productId) {
+      deleteUploadedFiles(rawFiles);
+      res.status(400).json({
+        success: false,
+        statusCode: 400,
+        message: 'Product ID is required in request parameters!',
+        data: null,
+      });
+      return;
     }
 
-    // Safe JSON Parsing for Variant Product Payload
-    if (typeof payload.variants === "string") {
+    // 🛠️ upload.any() থেকে আসা ফাইলগুলোকে ফিল্ডওয়াইজ অবজেক্টে গ্রুপ করা
+    const groupedFiles: { [key: string]: Express.Multer.File[] } = {};
+    if (Array.isArray(rawFiles)) {
+      rawFiles.forEach((file) => {
+        if (!groupedFiles[file.fieldname]) {
+          groupedFiles[file.fieldname] = [];
+        }
+        groupedFiles[file.fieldname].push(file);
+      });
+    }
+
+    // ২. Thumbnail Check (নতুন ফাইল না থাকলে পুরানো thumbnailImage স্ট্রিং হিসেবে থাকবে)
+const hasNewThumbnail = groupedFiles?.thumbnailImage?.[0];
+const existingThumbnail = payload.existingThumbnailImage || (typeof payload.thumbnailImage === 'string' ? payload.thumbnailImage : null);
+
+if (!hasNewThumbnail && !existingThumbnail) {
+  deleteUploadedFiles(rawFiles);
+  res.status(400).json({
+    success: false,
+    statusCode: 400,
+    message: 'Product thumbnail image is required!',
+    data: null,
+  });
+  return;
+}
+
+// Thumbnail path সেট করা
+if (hasNewThumbnail) {
+  payload.thumbnailImage = `/uploads/${groupedFiles.thumbnailImage[0].filename}`;
+} else {
+  payload.thumbnailImage = existingThumbnail;
+}
+
+    // ৩. Mandatory Basic Fields Check
+    if (!payload.name || !payload.categoryId || !payload.productType) {
+      deleteUploadedFiles(rawFiles);
+      res.status(400).json({
+        success: false,
+        statusCode: 400,
+        message: 'Product name, categoryId, and productType are required!',
+        data: null,
+      });
+      return;
+    }
+
+    // Thumbnail path সেট করা
+    if (hasNewThumbnail) {
+      payload.thumbnailImage = `/uploads/${groupedFiles.thumbnailImage[0].filename}`;
+    } else {
+      payload.thumbnailImage = payload.existingThumbnailImage;
+    }
+
+    // ৪. Variants & Existing Images Parsing
+    if (payload.variants) {
       try {
-        payload.variants = JSON.parse(payload.variants);
+        if (typeof payload.variants === 'string') {
+          payload.variants = JSON.parse(payload.variants);
+        } else if (Array.isArray(payload.variants) && typeof payload.variants[0] === 'string') {
+          payload.variants = JSON.parse(payload.variants[0]);
+        }
       } catch (err) {
-        throw new Error("Please provide valid variant details!");
+        deleteUploadedFiles(rawFiles);
+        res.status(400).json({
+          success: false,
+          statusCode: 400,
+          message: 'Please provide valid variant details!',
+          data: null,
+        });
+        return;
       }
     }
 
-    // Safe JSON Parsing for Gallery Images Payload
-    if (typeof payload.images === "string") {
+    if (payload.existingImages) {
       try {
-        payload.images = JSON.parse(payload.images);
+        if (typeof payload.existingImages === 'string') {
+          payload.existingImages = JSON.parse(payload.existingImages);
+        }
       } catch (err) {
-        throw new Error("Please upload or provide valid product images!");
+        payload.existingImages = [];
+      }
+    } else {
+      payload.existingImages = [];
+    }
+
+    // ৫. SINGLE Product Validation & Formatting
+    if (payload.productType === 'SINGLE') {
+      const newSingleImages = groupedFiles?.productImage || [];
+      const totalImagesCount = (payload.existingImages?.length || 0) + newSingleImages.length;
+
+      if (totalImagesCount === 0) {
+        deleteUploadedFiles(rawFiles);
+        res.status(400).json({
+          success: false,
+          statusCode: 400,
+          message: 'At least one product gallery image is required!',
+          data: null,
+        });
+        return;
+      }
+
+      if (
+        payload.costPrice === undefined ||
+        payload.sellPrice === undefined ||
+        payload.stock === undefined
+      ) {
+        deleteUploadedFiles(rawFiles);
+        res.status(400).json({
+          success: false,
+          statusCode: 400,
+          message: 'Cost price, sell price, and stock are required for single product!',
+          data: null,
+        });
+        return;
+      }
+
+      const costPrice = Number(payload.costPrice);
+      const sellPrice = Number(payload.sellPrice);
+      const stock = Number(payload.stock);
+
+      if (costPrice < 0 || sellPrice < 0 || stock < 0) {
+        deleteUploadedFiles(rawFiles);
+        res.status(400).json({
+          success: false,
+          statusCode: 400,
+          message: 'Cost price, sell price, and stock cannot be negative numbers!',
+          data: null,
+        });
+        return;
+      }
+
+      if (sellPrice < costPrice) {
+        deleteUploadedFiles(rawFiles);
+        res.status(400).json({
+          success: false,
+          statusCode: 400,
+          message: 'Sell price cannot be less than cost price!',
+          data: null,
+        });
+        return;
+      }
+
+      payload.costPrice = costPrice;
+      payload.sellPrice = sellPrice;
+      payload.stock = stock;
+      payload.newImages = newSingleImages.map((f: any) => `/uploads/${f.filename}`);
+    }
+
+    // ৬. VARIANT Product Validation
+    if (payload.productType === 'VARIANT') {
+      if (!payload.variants || !Array.isArray(payload.variants) || payload.variants.length === 0) {
+        deleteUploadedFiles(rawFiles);
+        res.status(400).json({
+          success: false,
+          statusCode: 400,
+          message: 'At least one variant block is required for variant product!',
+          data: null,
+        });
+        return;
+      }
+
+      for (let i = 0; i < payload.variants.length; i++) {
+        const variantBlock = payload.variants[i];
+        const optionsList = variantBlock.options || variantBlock.items;
+
+        // Dynamic key অনুযায়ী ফাইল চেক (variant_images_0, variant_images_1...)
+        const newUploadedVariantFiles = groupedFiles[`variant_images_${i}`] || [];
+        const existingImagesCount = variantBlock.existingImages?.length || 0;
+        const totalVariantImages = existingImagesCount + newUploadedVariantFiles.length;
+
+        if (totalVariantImages === 0) {
+          deleteUploadedFiles(rawFiles);
+          res.status(400).json({
+            success: false,
+            statusCode: 400,
+            message: `At least one image is required for Variant #${payload.variants.length - i}!`,
+            data: null,
+          });
+          return;
+        }
+
+        if (!optionsList || !Array.isArray(optionsList) || optionsList.length === 0) {
+          deleteUploadedFiles(rawFiles);
+          res.status(400).json({
+            success: false,
+            statusCode: 400,
+            message: `Variant #${payload.variants.length - i} must contain options!`,
+            data: null,
+          });
+          return;
+        }
+
+        for (const opt of optionsList) {
+          if (opt.costPrice === undefined || opt.sellPrice === undefined || opt.stock === undefined) {
+            deleteUploadedFiles(rawFiles);
+            res.status(400).json({
+              success: false,
+              statusCode: 400,
+              message: 'Cost price, sell price, and stock are required for each variant option!',
+              data: null,
+            });
+            return;
+          }
+
+          const costPrice = Number(opt.costPrice);
+          const sellPrice = Number(opt.sellPrice);
+          const stock = Number(opt.stock);
+
+          if (costPrice < 0 || sellPrice < 0 || stock < 0) {
+            deleteUploadedFiles(rawFiles);
+            res.status(400).json({
+              success: false,
+              statusCode: 400,
+              message: 'Cost price, sell price, and stock cannot be negative numbers in variants!',
+              data: null,
+            });
+            return;
+          }
+
+          if (sellPrice < costPrice) {
+            deleteUploadedFiles(rawFiles);
+            res.status(400).json({
+              success: false,
+              statusCode: 400,
+              message: 'Sell price cannot be less than cost price in variants!',
+              data: null,
+            });
+            return;
+          }
+
+          opt.costPrice = costPrice;
+          opt.sellPrice = sellPrice;
+          opt.stock = stock;
+        }
       }
     }
 
-    // Multer Multiple Files Upload (Gallery Images)
-    if (files?.images && files.images.length > 0) {
-      payload.images = files.images.map((f: any) => `/uploads/${f.filename}`);
-    }
-
-    // Number & Boolean Parsing for Form-Data Input
-    if (payload.isActive !== undefined) {
-      payload.isActive = payload.isActive === "true" || payload.isActive === true;
-    }
-
-    if (payload.minPrice) payload.minPrice = Number(payload.minPrice);
-    if (payload.maxPrice) payload.maxPrice = Number(payload.maxPrice);
-    if (payload.costPrice) payload.costPrice = Number(payload.costPrice);
-    if (payload.sellPrice) payload.sellPrice = Number(payload.sellPrice);
-    if (payload.stock) payload.stock = Number(payload.stock);
-    if (payload.vatPercent) payload.vatPercent = Number(payload.vatPercent);
-    if (payload.discountPercent) payload.discountPercent = Number(payload.discountPercent);
-
-    // Call updateProductService
-    const result = await updateProductService(id as string, updatedById, payload);
+    // ৭. সার্ভিস কল (productId, payload, এবং groupedFiles পাস করা হচ্ছে)
+    const result = await updateProductService(productId as string, payload, groupedFiles);
 
     res.status(200).json({
       success: true,
-      message: "Product updated successfully!",
+      statusCode: 200,
+      message: 'Product updated successfully!',
       data: result,
     });
-  } catch (error: any) {
-    // CLEANUP: Deletes uploaded files if update operation fails
-    deleteUploadedFiles(files);
+    return;
 
-    res.status(400).json({
+  } catch (error: any) {
+    // যেকোনো এরর হলে আপলোড হওয়া ইমেজগুলো সার্ভার থেকে মুছে ফেলা হবে
+    deleteUploadedFiles(rawFiles);
+
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: error.message || "Failed to update product!",
+      message: error.message || 'Something went wrong',
+      statusCode: error.statusCode || 500,
+      data: null,
     });
+    return;
   }
 };
 
+// product related
 
 // updateProductStatus
 export const updateProductStatus = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const { isActive } = req.body;
+  try{
 
-    if (typeof isActive !== "boolean") {
-      throw new Error("Please provide a valid boolean 'isActive' status (true/false)!");
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+      res.status(400).json({
+        success: false,
+        message: "Status is required",
+        statusCode: 400,
+        data: null,
+      });
+      return;
     }
 
-    const result = await updateProductStatusService(id as string, isActive);
+    const result = await updateProductStatusService(id as string, status);
 
     res.status(200).json({
       success: true,
-      message: "Product status updated successfully!",
+      message: "Product status updated successfully",
+      statusCode: 200,
       data: result,
     });
-  } catch (error: any) {
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to update product status!",
-    });
-  }
-};
+    return;
 
-// softDeleteProduct
-export const softDeleteProduct = async (req: Request, res: Response): Promise<void> => {
-  try {
+  }catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
+    });
+    return;
+  }
+}
+
+// deleteProduct
+export const deleteProduct = async (req: Request, res: Response): Promise<void> => {
+
+  try{
     const { id } = req.params;
 
-    const result = await softDeleteProductService(id as string);
+    const result = await deleteProductService(id as string);
 
     res.status(200).json({
       success: true,
-      message: "Product soft deleted successfully!",
+      message: "Product deleted successfully",
+      statusCode: 200,
       data: result,
     });
     return;
-  } catch (error: any) {
-    res.status(400).json({
+
+  }catch (error: any) {
+    res.status(500).json({
       success: false,
-      message: error.message || "Failed to delete product!",
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
     });
     return;
   }
-};
+
+}
 
 // restoreProduct
 export const restoreProduct = async (req: Request, res: Response): Promise<void> => {
-  try {
+  try{
     const { id } = req.params;
 
     const result = await restoreProductService(id as string);
@@ -274,214 +740,204 @@ export const restoreProduct = async (req: Request, res: Response): Promise<void>
     res.status(200).json({
       success: true,
       message: "Product restored successfully!",
+      statusCode: 200,
       data: result,
     });
     return;
-  } catch (error: any) {
-    res.status(400).json({
+
+  }catch (error: any) {
+    res.status(500).json({
       success: false,
-      message: error.message || "Failed to restore product!",
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
     });
     return;
   }
-};
+}
 
 
-// updateColorStatus
-export const updateColorStatus = async (req: Request, res: Response): Promise<void> => {
+// product variant related
+
+// updateProductVariantStatus
+export const updateProductVariantStatus = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { productId, colorId } = req.params;
-    const { isActive } = req.body;
+    const { variantId } = req.params;
+    const { status } = req.body;
 
-    if (typeof isActive !== "boolean") {
-      throw new Error("Please provide a valid boolean 'isActive' status (true/false)!");
+    if (!status) {
+      res.status(400).json({
+        success: false,
+        message: "Status is required",
+        statusCode: 400,
+        data: null,
+      });
+      return;
     }
 
-    const result = await updateColorStatusService(
-      productId as string,
-      colorId as string,
-      isActive
-    );
+    const result = await updateProductVariantStatusService(variantId as string, status);
 
     res.status(200).json({
       success: true,
-      message: "Color variants status updated successfully!",
-      data: result,
-    });
-  } catch (error: any) {
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to update color variants status!",
-    });
-  }
-};
-
-
-// softDeleteColor
-export const softDeleteColor = async ( req: Request, res: Response
-): Promise<void> => {
-  try {
-    const { productId, colorId } = req.params;
-
-    const result = await softDeleteColorService(productId as string, colorId as string);
-
-    res.status(200).json({
-      success: true,
-      message: "Color soft deleted successfully!",
-      data: result,
-    });
-    return;
-  } catch (error: any) {
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to soft delete color!",
-    });
-    return;
-  }
-};
-
-
-// restoreColor
-export const restoreColor = async ( req: Request, res: Response
-): Promise<void> => {
-  try {
-    const { productId, colorId } = req.params;
-
-    const result = await restoreColorService(productId as string, colorId as string);
-
-    res.status(200).json({
-      success: true,
-      message: "Color restored successfully!",
-      data: result,
-    });
-    return;
-  } catch (error: any) {
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to restore color!",
-    });
-    return;
-  }
-};
-
-
-// updateVariantStatus
-export const updateVariantStatus = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { variantId } = req.params;
-    const { isActive } = req.body;
-
-    if (typeof isActive !== "boolean") {
-      throw new Error(
-        "Please provide a valid boolean 'isActive' status (true/false)!"
-      );
-    }
-
-    const result = await updateVariantStatusService(variantId as string,isActive);
-
-    res.status(200).json({
-      success: true,
-      message: "Variant status updated successfully!",
-      data: result,
-    });
-    return;
-  } catch (error: any) {
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to update variant status!",
-    });
-    return;
-  }
-};
-
-
-// softDeleteVariant
-export const softDeleteVariant = async (req: Request,res: Response ): Promise<void> => {
-  try {
-    const { variantId } = req.params;
-
-    const result = await softDeleteVariantService(variantId as string);
-
-    res.status(200).json({
-      success: true,
-      message: "Variant soft deleted successfully!",
-      data: result,
-    });
-    return;
-  } catch (error: any) {
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to soft delete variant!",
-    });
-    return;
-  }
-};
-
-
-// restoreVariant
-export const restoreVariant = async ( req: Request, res: Response ): Promise<void> => {
-  try {
-    const { variantId } = req.params;
-
-    const result = await restoreVariantService(variantId as string);
-
-    res.status(200).json({
-      success: true,
-      message: "Variant restored successfully!",
-      data: result,
-    });
-    return;
-  } catch (error: any) {
-    res.status(400).json({
-      success: false,
-      message: error.message || "Failed to restore variant!",
-    });
-    return;
-  }
-};
-
-
-// getPublicProducts
-export const getPublicProducts = async (
-  _req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const result = await getPublicProductsService();
-
-    res.status(200).json({
-      success: true,
-      message: "Public products retrieved successfully!",
+      message: "Variant status updated successfully",
+      statusCode: 200,
       data: result,
     });
     return;
   } catch (error: any) {
     res.status(500).json({
       success: false,
-      message: error.message || "Failed to fetch public products!",
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
     });
     return;
   }
 };
 
+// deleteProductVariant
+export const deleteProductVariant = async (req: Request, res: Response): Promise<void> => {
+  try{
+    const { productId, variantId } = req.params;
 
-
-// getPublicProductById
-export const getPublicProductById = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const result = await getPublicProductByIdService(id as string);
+    const result = await deleteProductVariantService(productId as string, variantId as string);
 
     res.status(200).json({
       success: true,
-      message: 'Public product details retrieved successfully!',
+      message: "Product variant deleted successfully",
+      statusCode: 200,
       data: result,
     });
     return;
-  } catch (error: any) {
-    res.status(404).json({
+
+  }catch (error: any) {
+    res.status(500).json({
       success: false,
-      message: error.message || 'Product not found!',
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
+    });
+    return;
+  }
+}
+
+// restoreProductVariant
+export const restoreProductVariant = async (req: Request, res: Response): Promise<void> => {
+  try{
+
+    const { productId, variantId } = req.params;
+
+    const restoredVariant = await restoreProductVariantService(productId as string, variantId as string);
+
+    res.status(200).json({
+      success: true,
+      message: "Product variant restored successfully!",
+      statusCode: 200,
+      data: restoredVariant,
+    });
+    return;
+
+  }catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
+    });
+    return;
+  }
+}
+
+
+
+// product variant item related
+
+// updateProductVariantItemStatus
+export const updateProductVariantItemStatus = async (req: Request, res: Response): Promise<void> => {
+  try{
+    const { itemId } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+      res.status(400).json({
+        success: false,
+        message: "Status is required",
+        statusCode: 400,
+        data: null,
+      });
+      return;
+    }
+
+    const result = await updateProductVariantItemStatusService(itemId as string, status);
+
+    res.status(200).json({
+      success: true,
+      message: "Variant item status updated successfully",
+      statusCode: 200,
+      data: result,
+    });
+    return;
+
+  }catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
+    });
+    return;
+  }
+}
+
+// deleteProductVariantItem
+export const deleteProductVariantItem = async (req: Request, res: Response): Promise<void> => {
+  try{
+
+    const { productId, variantId, itemId } = req.params;
+
+    const result = await deleteProductVariantItemService( productId as string, variantId as string, itemId as string);
+
+    res.status(200).json({
+      success: true,
+      message: "Variant item deleted successfully",
+      statusCode: 200,
+      data: result,
+    });
+    return;
+
+  }catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
+    });
+    return;
+  }
+
+}
+
+// restoreProductVariantItem
+export const restoreProductVariantItem = async (req: Request,res: Response): Promise<void> => {
+  try {
+    const { productId, variantId, itemId } = req.params;
+
+    const restoredItem = await restoreProductVariantItemService( productId as string, variantId as string, itemId as string);
+
+    res.status(200).json({
+      success: true,
+      message: "Variant item restored successfully!",
+      statusCode: 200,
+      data: restoredItem,
+    });
+    return;
+    
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
     });
     return;
   }
