@@ -40,46 +40,48 @@ export const createTransactionService = async (payload: ICreateTransactionPayloa
 
 // getAllTransactionService
 export const getAllTransactionService = async (payload: IGetAllTransactionsPayload) => {
-
   const { user, startDate, endDate, type, searchTerm } = payload;
 
-  const whereConditions: any = {};
+  const andConditions: any[] = [];
 
   // Role based check
   if (user.role !== "ADMIN") {
-    whereConditions.userId = user.id;
+    andConditions.push({ userId: user.id });
   }
 
   // Type filter
-  if (type) {
-    whereConditions.type = type;
+  if (type && type.trim() !== "") {
+    andConditions.push({ type: type });
   }
 
   // Date range filter
   if (startDate || endDate) {
-    whereConditions.createdAt = {};
+    const dateCondition: any = {};
     if (startDate) {
-      whereConditions.createdAt.gte = new Date(startDate);
+      dateCondition.gte = new Date(startDate);
     }
     if (endDate) {
-      // To cover up to the end of the specified day (23:59:59)
       const end = new Date(endDate);
       end.setHours(23, 59, 59, 999);
-      whereConditions.createdAt.lte = end;
+      dateCondition.lte = end;
     }
+    andConditions.push({ createdAt: dateCondition });
   }
 
   // Search filter (For ADMIN only: search by user name or email)
-  if (searchTerm && user.role === "ADMIN") {
+  if (searchTerm && searchTerm.trim() !== "" && user.role === "ADMIN") {
     const cleanedSearchTerm = searchTerm.trim();
-
-    whereConditions.user = {
-      OR: [
-        { name: { contains: cleanedSearchTerm, mode: "insensitive" } },
-        { email: { contains: cleanedSearchTerm, mode: "insensitive" } },
-      ],
-    };
+    andConditions.push({
+      createdBy: {
+        OR: [
+          { name: { contains: cleanedSearchTerm, mode: "insensitive" } },
+          { email: { contains: cleanedSearchTerm, mode: "insensitive" } },
+        ],
+      },
+    });
   }
+
+  const whereConditions = andConditions.length > 0 ? { AND: andConditions } : {};
 
   // Retrieving data from the database
   const result = await prisma.transaction.findMany({
@@ -103,8 +105,7 @@ export const getAllTransactionService = async (payload: IGetAllTransactionsPaylo
   });
 
   return result;
-
-}
+};
 
 // getDashboardSummaryService
 export const getDashboardSummaryService = async (userId: string, role: string) => {
