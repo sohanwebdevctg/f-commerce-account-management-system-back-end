@@ -127,8 +127,6 @@ model Customer{
   name String @db.VarChar(100) // কাস্টমারের পুরো নাম
   phone String @unique @db.VarChar(20) // কাস্টমারের ফোন নম্বর (SMS পাঠানোর জন্য ইউনিক)
   email String? @db.VarChar(100) // কাস্টমারের ইমেইল (অপশনাল)
-  city String @db.VarChar(100) // কাস্টমারের শহর (কুরিয়ার ডেলিভারি চার্জের হিসাব রাখতে)
-  address String @db.Text // কাস্টমারের বিস্তারিত বাসা/ডেলিভারি ঠিকানা
   customerType CustomerType @default(REGULAR) // কাস্টমারের আচরণ অনুযায়ী টাইপ (ডিফল্ট: REGULAR)
 
   // order relation (এই কাস্টমার কি কি অর্ডার করেছে)
