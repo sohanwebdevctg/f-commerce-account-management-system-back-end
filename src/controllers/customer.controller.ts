@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { createCustomerService, getAllCustomerService } from "../services/customer.service";
+import { createCustomerService, getAllCustomerService, updateCustomerStatusService } from "../services/customer.service";
 
 // createCustomer
 export const createCustomer = async (req: Request, res: Response): Promise<void> => {
@@ -73,6 +73,34 @@ export const getAllCustomer = async (req: Request, res: Response): Promise<void>
     data: result,
   });
   return;
+
+  }catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
+    });
+    return;
+  }
+}
+
+// updateCustomerStatus
+export const updateCustomerStatus = async (req: Request, res: Response): Promise<void> => {
+  try{
+
+  const { id } = req.params;
+    const { customerType } = req.body;
+
+    const result = await updateCustomerStatusService(id as string, { customerType });
+
+    res.status(200).json({
+      success: true,
+      message: "Customer status updated successfully",
+      statusCode: 200,
+      data: result,
+    });
+    return;
 
   }catch (error: any) {
     res.status(500).json({

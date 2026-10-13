@@ -15,6 +15,11 @@ export interface IGetAllCustomersPayload {
   type?: string;
 }
 
+// Update Customer Status Payload Interface
+export interface IUpdateCustomerStatusPayload {
+  customerType: string;
+}
+
 // createCustomerService
 export const createCustomerService = async (payload: ICreateCustomerPayload) => {
 
@@ -44,7 +49,6 @@ export const createCustomerService = async (payload: ICreateCustomerPayload) => 
 
 }
 
-// getAllCustomerService
 // get all customer service
 export const getAllCustomerService = async (payload: IGetAllCustomersPayload) => {
   const { searchTerm, type } = payload;
@@ -125,5 +129,20 @@ export const getAllCustomerService = async (payload: IGetAllCustomersPayload) =>
     };
   });
 
+  return result;
+};
+
+
+// updateCustomerStatusService
+export const updateCustomerStatusService = async (
+  id: string,
+  payload: IUpdateCustomerStatusPayload
+) => {
+  const result = await prisma.customer.update({
+    where: { id },
+    data: {
+      customerType: payload.customerType as any,
+    },
+  });
   return result;
 };
