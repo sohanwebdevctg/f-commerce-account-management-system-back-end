@@ -49,6 +49,7 @@ export const createCustomerService = async (payload: ICreateCustomerPayload) => 
 
 }
 
+
 // get all customer service
 export const getAllCustomerService = async (payload: IGetAllCustomersPayload) => {
   const { searchTerm, type } = payload;
@@ -77,59 +78,59 @@ export const getAllCustomerService = async (payload: IGetAllCustomersPayload) =>
     whereConditions.customerType = type;
   }
 
-  const customers = await prisma.customer.findMany({
-    where: whereConditions,
-    orderBy: {
-      createdAt: 'desc',
-    },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      phone: true,
-      customerType: true,
-      createdAt: true,
-      orders: {
-        select: {
-          totalAmount: true,
-          orderItems: {
-            select: {
-              quantity: true,
+    const customers = await prisma.customer.findMany({
+      where: whereConditions,
+      orderBy: {
+        createdAt: 'desc',
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        customerType: true,
+        createdAt: true,
+        orders: {
+          select: {
+            amount: true,
+            orderItems: {
+              select: {
+                quantity: true,
+              },
             },
           },
-        },
-      },
-    },
-  });
-
-  // Calculating the total quantity and total amount from customer order data and sending clean data
-  const result = customers.map((customer) => {
-    let totalQuantity = 0;
-    let totalAmount = 0;
-
-    customer.orders.forEach((order) => {
-      // Adding up the total amount of money
-      totalAmount += Number(order.totalAmount || 0);
-
-      // Adding the quantities of the ordered items
-      order.orderItems.forEach((item) => {
-        totalQuantity += item.quantity || 0;
-      });
+        }
+      }
     });
 
-    return {
-      id: customer.id,
-      name: customer.name,
-      email: customer.email,
-      phone: customer.phone,
-      customerType: customer.customerType,
-      createdAt: customer.createdAt,
-      totalQuantity,
-      totalAmount,
-    };
-  });
+    const result = customers.map((customer: any) => {
+      let totalQuantity = 0;
+      let totalAmount = 0;
 
-  return result;
+      customer.orders.forEach((order: any) => {
+          totalAmount += Number(order.amount || 0);
+
+          if (order.orderItems && order.orderItems.length > 0) {
+            order.orderItems.forEach((item: any) => {
+              totalQuantity += Number(item.quantity || 0);
+            });
+          }
+        });
+
+      return {
+        id: customer.id,
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+        customerType: customer.customerType,
+        createdAt: customer.createdAt,
+        totalQuantity,
+        totalAmount,
+      };
+    });
+
+    return result;
+  
 };
 
 

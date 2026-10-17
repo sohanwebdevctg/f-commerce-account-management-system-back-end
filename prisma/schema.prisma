@@ -108,8 +108,8 @@ model User{
   createdProducts Product[] @relation("CreatedProducts")
   updatedProducts Product[] @relation("UpdatedProducts")
 
-  // // transaction relation (এই ইউজার কি কি লেনদেন এন্ট্রি দিয়েছে)
-  // transactions Transaction[] @relation("UserTransactions")
+  // transaction relation (এই ইউজার কি কি লেনদেন এন্ট্রি দিয়েছে)
+  transactions Transaction[] @relation("UserTransactions")
 
   // order relation (এই ইউজার/স্টাফ কোন অর্ডারগুলো ক্রিয়েট করেছে)
   createdOrders Order[] @relation("CreatedOrders")
@@ -301,6 +301,29 @@ model ProductImage{
 
 }
 
+// ================= Transaction Model =================
+
+// ট্রানজেকশন/লেনদেন মডেল (আর্থিক হিসাব-নিকাশের জন্য)
+model Transaction{
+  id String @id @default(uuid()) // ট্রানজেকশনের ইউনিক আইডি
+  type TransactionType // লেনদেনের ধরন
+  amount Decimal @db.Decimal(12,2) // টাকার পরিমাণ
+  note String? @db.Text // লেনদেনের কারণ বা বিবরণ (অপশনাল)
+
+  // User (Created By)-র সাথে রিলেশন (কোন স্টাফ/অ্যাডমিন এই এন্ট্রি দিয়েছে)
+  createdById String // যে স্টাফ এন্ট্রি করেছে তার আইডি
+  createdBy User @relation("UserTransactions", fields: [createdById], references: [id]) // user মডেলের সাথে রিলেশন
+
+  // Order-এর সাথে রিলেশন (যদি এই লেনদেনটি কোনো অর্ডারের হয় - অপশনাল)
+  orderId String? // অর্ডারের আইডি (অপশনাল)
+  order  Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull) // order মডেলের সাথে রিলেশন
+
+  createdAt DateTime @default(now())  // লেনদেনের সময়
+  updatedAt DateTime @updatedAt  // শেষ কখন আপডেট হলো
+
+  @@map("transactions") // ডাটাবেজে টেবিলটির নাম হবে "transactions"
+}
+
 
 // ================= Order Model =================
 
@@ -332,6 +355,8 @@ model Order{
   createdById String?  // যে স্টাফ এন্ট্রি করেছে তার আইডি (অপশনাল, কারণ ওয়েবসাইট থেকেও হতে পারে)
   createdBy  User?  @relation("CreatedOrders", fields: [createdById], references: [id])
 
+    // transaction relation (এই অর্ডারের কি কি লেনদেন বা পেমেন্ট হয়েছে)
+  transactions Transaction[]
 
   // order item relation (এই অর্ডারে কি কি প্রোডাক্ট আছে)
   orderItems OrderItem[]
@@ -384,28 +409,7 @@ model OrderItem{
 }
 
 
-// // ================= Transaction Model =================
 
-// // ট্রানজেকশন/লেনদেন মডেল (আর্থিক হিসাব-নিকাশের জন্য)
-// model Transaction{
-//   id String @id @default(uuid()) // ট্রানজেকশনের ইউনিক আইডি
-//   type TransactionType // লেনদেনের ধরন
-//   amount Decimal @db.Decimal(12,2) // টাকার পরিমাণ
-//   note String? @db.Text // লেনদেনের কারণ বা বিবরণ (অপশনাল)
-
-//   // User (Created By)-র সাথে রিলেশন (কোন স্টাফ/অ্যাডমিন এই এন্ট্রি দিয়েছে)
-//   createdById String // যে স্টাফ এন্ট্রি করেছে তার আইডি
-//   createdBy User @relation("UserTransactions", fields: [createdById], references: [id]) // user মডেলের সাথে রিলেশন
-
-//   // Order-এর সাথে রিলেশন (যদি এই লেনদেনটি কোনো অর্ডারের হয় - অপশনাল)
-//   orderId String? // অর্ডারের আইডি (অপশনাল)
-//   order  Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull) // order মডেলের সাথে রিলেশন
-
-//   createdAt DateTime @default(now())  // লেনদেনের সময়
-//   updatedAt DateTime @updatedAt  // শেষ কখন আপডেট হলো
-
-//   @@map("transactions") // ডাটাবেজে টেবিলটির নাম হবে "transactions"
-// }
 
 
 // // ================= Order Model =================
