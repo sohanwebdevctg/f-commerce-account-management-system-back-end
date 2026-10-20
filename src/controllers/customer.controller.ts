@@ -5,7 +5,6 @@ import { createCustomerService, getAllCustomerService, updateCustomerStatusServi
 export const createCustomer = async (req: Request, res: Response): Promise<void> => {
 
   try{
-
     const { name, phone, email } = req.body;
 
     if (!name || typeof name !== "string" || !name.trim()) {
