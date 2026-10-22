@@ -535,7 +535,6 @@ export const createProductService = async (createdById: string, payload: ICreate
 export const getAllProductService = async (payload: IGetAllProductsPayload) => {
   const { isDeleted, searchTerm } = payload;
 
-  // Search filter
   const searchFilter = searchTerm
     ? {
         name: {
@@ -545,13 +544,11 @@ export const getAllProductService = async (payload: IGetAllProductsPayload) => {
       }
     : {};
 
-  // Build root condition dynamically
   let whereConditions: any = {
     ...searchFilter,
   };
 
   if (isDeleted) {
-    // Deleted Tab: প্রোডাক্ট, ভ্যারিয়েন্ট অথবা সাইজ/আইটেম যেকোনো এক লেভেলে isDeleted: true থাকলেই সেটা আসবে
     whereConditions.OR = [
       { isDeleted: true },
       { variants: { some: { isDeleted: true } } },
@@ -566,11 +563,10 @@ export const getAllProductService = async (payload: IGetAllProductsPayload) => {
       },
     ];
   } else {
-    // Active Tab: কেবল যেগুলোর মূল প্রোডাক্ট ডিলিট হয়নি (isDeleted: false)
     whereConditions.isDeleted = false;
   }
 
-  // Fetching product hierarchy data from database
+  // কুয়েরি করে orderItems এর quantity আনা হচ্ছে
   const result = await prisma.product.findMany({
     where: whereConditions,
     orderBy: {
@@ -590,22 +586,35 @@ export const getAllProductService = async (payload: IGetAllProductsPayload) => {
           name: true,
         },
       },
-      _count: {
+      // 🟢 মেইন প্রোডাক্ট লেভেলে বিক্রিত কোয়ান্টিটি ট্র্যাক করার জন্য
+      orderItems: {
+        where: {
+          order: {
+            isRemoved: false,
+            status: { not: 'RETURNED' },
+          },
+        },
         select: {
-          orderItems: true,
+          quantity: true,
         },
       },
       variants: {
-        // Deleted Tab হলে সকল ভ্যারিয়েন্ট আনবে, Active Tab হলে শুধু isDeleted: false আনবে
         where: isDeleted ? {} : { isDeleted: false },
         select: {
           id: true,
           colorCode: true,
           isActive: true,
           isDeleted: true,
-          _count: {
+          // 🟢 ভ্যারিয়েন্ট লেভেলে বিক্রিত কোয়ান্টিটি ট্র্যাক করার জন্য
+          orderItems: {
+            where: {
+              order: {
+                isRemoved: false,
+                status: { not: 'RETURNED' },
+              },
+            },
             select: {
-              orderItems: true,
+              quantity: true,
             },
           },
           images: {
@@ -615,31 +624,77 @@ export const getAllProductService = async (payload: IGetAllProductsPayload) => {
             },
           },
           variantItems: {
-      // 🔴 পরিবর্তন: Active/Deleted উভয় ক্ষেত্রেই সকল variantItems আনা হচ্ছে
-      // যাতে ডাটাবেজে অরিজিনালি কয়টি সাইজ ছিল তা বুঝা যায়
-      select: {
-        id: true,
-        varientName: true,
-        size: true,
-        costPrice: true,
-        sellPrice: true,
-        stock: true,
-        profit: true,
-        isActive: true,
-        isDeleted: true,
-        _count: {
-          select: {
-            orderItems: true,
+            select: {
+              id: true,
+              varientName: true,
+              size: true,
+              costPrice: true,
+              sellPrice: true,
+              stock: true,
+              profit: true,
+              isActive: true,
+              isDeleted: true,
+              // 🟢 সাইজ/আইটেম লেভেলে বিক্রিত কোয়ান্টিটি ট্র্যাক করার জন্য
+              orderItems: {
+                where: {
+                  order: {
+                    isRemoved: false,
+                    status: { not: 'RETURNED' },
+                  },
+                },
+                select: {
+                  quantity: true,
+                },
+              },
+            },
           },
         },
       },
-        },
-      },
-    }
-  },
+    },
   });
 
-  return result;
+  // টোটাল সোল্ড কোয়ান্টিটি সাম (Sum) বের করা
+  // ব্যাকএন্ডের getAllProductService এর ভেতরের প্রসেসিং লজিকটি এভাবে আপডেট করুন:
+
+const processedResult = result.map((product: any) => {
+  const totalSold = product.orderItems?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
+  delete product.orderItems;
+
+  const processedVariants = product.variants?.map((variant: any) => {
+    
+    // ১. প্রথমে প্রতিটি সাইজ/আইটেমের সোল্ড কোয়ান্টিটি হিসাব করা
+    const processedVariantItems = variant.variantItems?.map((item: any) => {
+      const itemSold = item.orderItems?.reduce((sum: number, x: any) => sum + (x.quantity || 0), 0) || 0;
+      delete item.orderItems;
+
+      return {
+        ...item,
+        totalSold: itemSold,
+      };
+    });
+
+    // ২. এখন ভেরিয়েন্ট গ্রুপের টোটাল সোল্ড বের করতে এর আন্ডারে থাকা সমস্ত সাইজের totalSold যোগ করে দেওয়া
+    const variantSold = processedVariantItems?.reduce((sum: number, item: any) => sum + (item.totalSold || 0), 0) || 0;
+    // যদি ভেরিয়েন্টের নিজস্ব সরাসরি orderItems থাকে সেটার সাথেও যোগ করা যেতে পারে:
+    const directVariantSold = variant.orderItems?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
+    
+    delete variant.orderItems;
+
+    return {
+      ...variant,
+      totalSold: variantSold + directVariantSold, // সব সাইজ মিলিয়ে ভেরিয়েন্টের মোট বিক্রি
+      variantItems: processedVariantItems,
+    };
+  });
+
+  return {
+    ...product,
+    totalSold: totalSold,
+    variants: processedVariants,
+  };
+});
+
+  return processedResult;
 };
 
 // getSingleProductService

@@ -157,33 +157,111 @@ export const getAllOrderService = async (payload: IGetAllOrderPayload) => {
 
 
 // updateOrderStatusService
-export const updateOrderStatusService = async ( id: string,  status: OrderStatus,  user: { id: string; role: string }
+export const updateOrderStatusService = async (
+  id: string,
+  status: OrderStatus,
+  user: { id: string; role: string }
 ) => {
-  
   if (user.role === "STAFF") {
     if (status !== OrderStatus.PROCESSING && status !== OrderStatus.CONFIRMED) {
       throw new Error("Staff can only update status to PROCESSING or CONFIRMED!");
     }
   }
 
-  const result = await prisma.order.update({
+  // ১. বর্তমান অর্ডারের তথ্য ও তার সাথে যুক্ত orderItems আগে ফেচ করে নিব
+  const existingOrder = await prisma.order.findUnique({
     where: { id },
-    data: {
-      status: status,
-    },
+    include: { orderItems: true },
   });
 
-  return result;
+  if (!existingOrder) {
+    throw new Error("Order not found!");
+  }
+
+  // ২. ট্রানজ্যাকশন শুরু
+  return await prisma.$transaction(async (tx) => {
+    
+    // কন্ডিশন-১: আগের স্ট্যাটাস RETURNED ছিল না, কিন্তু নতুন স্ট্যাটাস RETURNED করা হলো
+    // (মানে মাল ফেরত এসেছে, তাই স্টক বাড়াতে হবে)
+    if (existingOrder.status !== OrderStatus.RETURNED && status === OrderStatus.RETURNED) {
+      for (const item of existingOrder.orderItems) {
+        if (item.variantItemId) {
+          await tx.variantItem.update({
+            where: { id: item.variantItemId },
+            data: {
+              stock: {
+                increment: item.quantity, // স্টক আবার যুক্ত হবে
+              },
+            },
+          });
+        }
+      }
+    }
+
+    // কন্ডিশন-২: আগের স্ট্যাটাস RETURNED ছিল, কিন্তু এখন রিটার্ন থেকে আবার অন্য কোনো স্ট্যাটাসে (যেমন: DELIVERED, PROCESSING, PENDING) নেওয়া হচ্ছে
+    // (মানে প্রোডাক্টটি আবার কাস্টমারকে পাঠানো হচ্ছে, তাই স্টক কমবে)
+    if (existingOrder.status === OrderStatus.RETURNED && status !== OrderStatus.RETURNED) {
+      for (const item of existingOrder.orderItems) {
+        if (item.variantItemId) {
+          await tx.variantItem.update({
+            where: { id: item.variantItemId },
+            data: {
+              stock: {
+                decrement: item.quantity, // স্টক থেকে পুনরায় কমে যাবে
+              },
+            },
+          });
+        }
+      }
+    }
+
+    // ৩. অর্ডারের স্ট্যাটাস আপডেট করা
+    const updatedOrder = await tx.order.update({
+      where: { id },
+      data: { status },
+    });
+
+    return updatedOrder;
+  });
 };
 
 
 // deleteOrderService
 export const deleteOrderService = async (id: string) => {
-  const result = await prisma.order.update({
+  // ১. অর্ডারের তথ্য এবং তার সাথে থাকা orderItems খুঁজে আনা
+  const existingOrder = await prisma.order.findUnique({
     where: { id },
-    data: {
-      isRemoved: true,
-    },
+    include: { orderItems: true },
   });
-  return result;
+
+  if (!existingOrder) {
+    throw new Error("Order not found!");
+  }
+
+  // ২. ট্রানজ্যাকশন শুরু
+  return await prisma.$transaction(async (tx) => {
+    // যদি অর্ডারটি আগে সফট-ডিলিট না হয়ে থাকে, তবে স্টক ফেরত বাড়ানো হবে
+    if (!existingOrder.isRemoved) {
+      for (const item of existingOrder.orderItems) {
+        if (item.variantItemId) {
+          await tx.variantItem.update({
+            where: { id: item.variantItemId },
+            data: {
+              stock: {
+                increment: item.quantity, // রিমুভ হওয়ার সাথে সাথে স্টক পুনরায় ভেরিয়েন্ট টেবিলে যোগ হবে
+              },
+            },
+          });
+        }
+      }
+    }
+
+    // ৩. অর্ডারের isRemoved ট্রু করে দেওয়া
+    const result = await tx.order.update({
+      where: { id },
+      data: { isRemoved: true },
+    });
+
+    return result;
+  });
 };
