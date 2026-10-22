@@ -156,6 +156,77 @@ export const getAllOrderService = async (payload: IGetAllOrderPayload) => {
 };
 
 
+// getSingleOrderService
+// getSingleOrderService
+export const getSingleOrderService = async (id: string) => {
+  const order = await prisma.order.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      invoiceNo: true,
+      // অর্ডারের সময় ব্যবহৃত কাস্টমারের নাম, যোগাযোগ ও ঠিকানা
+      name: true,
+      phone: true,
+      email: true,
+      city: true,
+      address: true,
+      quantity: true,
+      amount: true,
+      status: true,
+      isRemoved: true,
+      createdAt: true,
+      updatedAt: true,
+
+      // কাস্টমার প্রোফাইলের মূল ডাটা
+      customer: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+          customerType: true,
+        },
+      },
+
+      // অর্ডারের ভেতরের প্রোডাক্ট আইটেমসমূহ
+      orderItems: {
+        select: {
+          id: true,
+          orderId: true,
+          productId: true,
+          variantId: true,
+          variantItemId: true,
+          productName: true,
+          variantName: true,
+          image: true,          // প্রোডাক্ট/ভেরিয়েন্টের অরিজিনাল ছবি
+          colorCode: true,      // কালার কোড (অপশনাল)
+          size: true,           // সাইজ (অপশনাল)
+          sellPrice: true,      // একক দাম
+          quantity: true,       // কত পিস অর্ডার করেছে
+          damagedQuantity: true,// নষ্ট বা ড্যামেজ হওয়া প্রোডাক্ট সংখ্যা
+          totalPrice: true,     // মোট দাম (sellPrice * quantity)
+        },
+      },
+
+      // যে স্টাফ/এডমিন অর্ডারটি এন্ট্রি করেছে
+      createdBy: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        },
+      },
+    },
+  });
+
+  if (!order) {
+    throw new Error("Order not found!");
+  }
+
+  return order;
+};
+
 // updateOrderStatusService
 export const updateOrderStatusService = async (
   id: string,

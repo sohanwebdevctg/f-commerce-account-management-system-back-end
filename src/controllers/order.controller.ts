@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { createOrderService, deleteOrderService, getAllOrderService, updateOrderStatusService } from "../services/order.service";
+import { createOrderService, deleteOrderService, getAllOrderService, getSingleOrderService, updateOrderStatusService } from "../services/order.service";
 
 // createOrder
 export const createOrder = async (req: Request, res: Response): Promise<void> => {
@@ -60,6 +60,33 @@ export const getAllOrder = async (req: Request, res: Response): Promise<void> =>
     return;
   }
 }
+
+
+// getSingleOrder
+export const getSingleOrder = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    const result = await getSingleOrderService(id as string);
+
+    res.status(200).json({
+      success: true,
+      message: "Order retrieved successfully",
+      statusCode: 200,
+      data: result,
+    });
+    return;
+
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
+    });
+    return;
+  }
+};
 
 
 // updateOrderStatus
