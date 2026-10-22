@@ -698,10 +698,10 @@ const processedResult = result.map((product: any) => {
 };
 
 // getSingleProductService
+// getSingleProductService
 export const getSingleProductService = async (payload: IGetSingleProductPayload) => {
   const { id } = payload;
 
-  // Step 1: চেক করা এই আইডি দিয়ে কোনো প্রোডাক্ট ডাটাবেজে আছে কিনা
   const isProductExist = await prisma.product.findUnique({
     where: { id },
   });
@@ -710,8 +710,7 @@ export const getSingleProductService = async (payload: IGetSingleProductPayload)
     throw new Error("Product not found!");
   }
 
-  // Fetch all the details when the product is found
-  const result = await prisma.product.findUnique({
+  const product = await prisma.product.findUnique({
     where: { id },
     select: {
       id: true,
@@ -727,7 +726,6 @@ export const getSingleProductService = async (payload: IGetSingleProductPayload)
       createdAt: true,
       updatedAt: true,
 
-      // Category details
       category: {
         select: {
           id: true,
@@ -735,7 +733,6 @@ export const getSingleProductService = async (payload: IGetSingleProductPayload)
         },
       },
 
-      // Created By (User)
       createdBy: {
         select: {
           id: true,
@@ -745,7 +742,6 @@ export const getSingleProductService = async (payload: IGetSingleProductPayload)
         },
       },
 
-      // Updated By (User)
       updatedBy: {
         select: {
           id: true,
@@ -755,14 +751,19 @@ export const getSingleProductService = async (payload: IGetSingleProductPayload)
         },
       },
 
-      // Order Items Count
-      _count: {
+      // 🟢 মেইন প্রোডাক্ট লেভেলে বিক্রিত কোয়ান্টিটি ফিল্টার করা
+      orderItems: {
+        where: {
+          order: {
+            isRemoved: false,
+            status: { not: 'RETURNED' },
+          },
+        },
         select: {
-          orderItems: true,
+          quantity: true,
         },
       },
 
-      // Variants with Images & VariantItems
       variants: {
         select: {
           id: true,
@@ -781,9 +782,16 @@ export const getSingleProductService = async (payload: IGetSingleProductPayload)
             },
           },
 
-          _count: {
+          // 🟢 ভ্যারিয়েন্ট লেভেলে বিক্রিত কোয়ান্টিটি ফিল্টার করা
+          orderItems: {
+            where: {
+              order: {
+                isRemoved: false,
+                status: { not: 'RETURNED' },
+              },
+            },
             select: {
-              orderItems: true,
+              quantity: true,
             },
           },
 
@@ -805,9 +813,17 @@ export const getSingleProductService = async (payload: IGetSingleProductPayload)
               deletedAt: true,
               createdAt: true,
               updatedAt: true,
-              _count: {
+              
+              // 🟢 সাইজ/আইটেম লেভেলে বিক্রিত কোয়ান্টিটি ফিল্টার করা
+              orderItems: {
+                where: {
+                  order: {
+                    isRemoved: false,
+                    status: { not: 'RETURNED' },
+                  },
+                },
                 select: {
-                  orderItems: true,
+                  quantity: true,
                 },
               },
             },
@@ -817,7 +833,39 @@ export const getSingleProductService = async (payload: IGetSingleProductPayload)
     },
   });
 
-  return result;
+  if (!product) return null;
+
+  // 🟢 ডেটা প্রসেস করে টোটাল সোল্ড কোয়ান্টিটি (totalSold) বের করা
+  const totalSold = product.orderItems?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
+  delete product.orderItems;
+
+  const processedVariants = product.variants?.map((variant: any) => {
+    const processedVariantItems = variant.variantItems?.map((item: any) => {
+      const itemSold = item.orderItems?.reduce((sum: number, x: any) => sum + (x.quantity || 0), 0) || 0;
+      delete item.orderItems;
+
+      return {
+        ...item,
+        totalSold: itemSold,
+      };
+    });
+
+    const variantSoldFromItems = processedVariantItems?.reduce((sum: number, item: any) => sum + (item.totalSold || 0), 0) || 0;
+    const variantSoldDirect = variant.orderItems?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
+    delete variant.orderItems;
+
+    return {
+      ...variant,
+      totalSold: variantSoldFromItems + variantSoldDirect,
+      variantItems: processedVariantItems,
+    };
+  });
+
+  return {
+    ...product,
+    totalSold,
+    variants: processedVariants,
+  };
 };
 
 // updateProductService
