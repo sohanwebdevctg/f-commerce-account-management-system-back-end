@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { createOrderService, deleteOrderService, getAllOrderService, getSingleOrderService, updateOrderStatusService } from "../services/order.service";
+import { createOrderService, deleteOrderItemService, deleteOrderService, getAllOrderService, getSingleOrderService, updateOrderQuantityService, updateOrderStatusService } from "../services/order.service";
 
 // createOrder
 export const createOrder = async (req: Request, res: Response): Promise<void> => {
@@ -117,6 +117,73 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
     });
     return;
   }
+}
+
+// updateOrderQuantity
+export const updateOrderQuantity = async (req: Request, res: Response): Promise<void> => {
+  try{
+
+    const { itemId } = req.params;
+    const { type } = req.body; // 'increment' অথবা 'decrement'
+
+    if (!type || (type !== "increment" && type !== "decrement")) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid action type! Must be 'increment' or 'decrement'.",
+        statusCode: 400,
+        data: null,
+      });
+      return;
+    }
+
+    const result = await updateOrderQuantityService(itemId as string, type);
+
+    res.status(200).json({
+      success: true,
+      message: `Quantity ${type === "increment" ? "increased" : "decreased"} successfully!`,
+      statusCode: 200,
+      data: result,
+    });
+
+  }catch (error: any) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
+    });
+    return;
+  }
+}
+
+// deleteOrderItem
+export const deleteOrderItem = async (req: Request, res: Response): Promise<void> => {
+  try{
+
+    const { itemId } = req.params;
+
+    const result = await deleteOrderItemService(itemId as string);
+
+    res.status(200).json({
+      success: true,
+      message: "Order item deleted successfully and stock restocked",
+      statusCode: 200,
+      data: result,
+    });
+    return;
+
+  }catch (error: any) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
+    });
+    return;
+  }
+
 }
 
 // deleteOrder

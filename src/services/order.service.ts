@@ -1,4 +1,4 @@
-import { OrderStatus } from "@prisma/client";
+import { OrderStatus, Prisma } from "@prisma/client";
 import prisma from "../prisma";
 
 // get all order payload
@@ -157,7 +157,6 @@ export const getAllOrderService = async (payload: IGetAllOrderPayload) => {
 
 
 // getSingleOrderService
-// getSingleOrderService
 export const getSingleOrderService = async (id: string) => {
   const order = await prisma.order.findUnique({
     where: { id },
@@ -224,7 +223,16 @@ export const getSingleOrderService = async (id: string) => {
     throw new Error("Order not found!");
   }
 
-  return order;
+  // প্রতিটি অর্ডারের আইটেমের totalPrice সঠিকভাবে ক্যালকুলেট করে আপডেট করে দেওয়া
+  const updatedOrderItems = order.orderItems.map((item) => ({
+    ...item,
+    totalPrice: Number(item.sellPrice) * Number(item.quantity), // এখানে গুণ করে সঠিক টোটাল প্রাইস বের করা হলো
+  }));
+
+  return {
+    ...order,
+    orderItems: updatedOrderItems,
+  };
 };
 
 // updateOrderStatusService
@@ -293,6 +301,146 @@ export const updateOrderStatusService = async (
     });
 
     return updatedOrder;
+  });
+};
+
+// updateOrderQuantityService
+export const updateOrderQuantityService = async (itemId: string, type: "increment" | "decrement") => {
+  
+  return await prisma.$transaction(async (tx) => {
+    // ১. অর্ডার আইটেম এবং তার সাথে সম্পর্কিত VariantItem ও Order খুঁজে বের করা
+    const orderItem = await tx.orderItem.findUnique({
+      where: { id: itemId },
+      include: {
+        order: {
+          select: { id: true },
+        },
+        variantItem: {
+          select: { id: true, stock: true },
+        },
+      },
+    });
+
+    if (!orderItem) {
+      throw new Error("Order item not found!");
+    }
+
+    // ২. বর্তমান স্টক চেক করা (VariantItem থেকে স্টক নেওয়া হচ্ছে)
+    const currentStock = orderItem.variantItem?.stock || 0;
+
+    // ৩. নতুন কোয়ান্টিটি ক্যালকুলেশন এবং ভ্যালিডেশন
+    let newQuantity = orderItem.quantity;
+
+    if (type === "increment") {
+      // স্টকের বেশি বাড়ানো যাবে না
+      if (currentStock <= 0) {
+        throw new Error("Stock is not available for this product!");
+      }
+      newQuantity += 1;
+    } else if (type === "decrement") {
+      // ১ এর নিচে নামানো যাবে না
+      if (orderItem.quantity <= 1) {
+        throw new Error("Quantity cannot be less than 1!");
+      }
+      newQuantity -= 1;
+    }
+
+    // ৪. নতুন টোটাল প্রাইস হিসাব করা (sellPrice * newQuantity)
+    const updatedTotalPrice = Number(orderItem.sellPrice) * newQuantity;
+
+    // ৫. OrderItem-এর কোয়ান্টিটি ও টোটাল প্রাইস আপডেট করা
+    const updatedOrderItem = await tx.orderItem.update({
+      where: { id: itemId },
+      data: {
+        quantity: newQuantity,
+        totalPrice: updatedTotalPrice,
+      },
+    });
+
+    // ৬. স্টক অ্যাডজাস্ট করা (increment হলে স্টক কমবে [-1], decrement হলে স্টক বাড়বে [+1])
+    const stockChange = type === "increment" ? -1 : 1;
+
+    if (orderItem.variantItemId) {
+      await tx.variantItem.update({
+        where: { id: orderItem.variantItemId },
+        data: { stock: { increment: stockChange } },
+      });
+    }
+
+    // ৭. অর্ডারের মোট অ্যামাউন্ট (Total Order Amount) রিক্যালকুলেট করে আপডেট করা
+    const allOrderItems = await tx.orderItem.findMany({
+      where: { orderId: orderItem.orderId },
+      select: { totalPrice: true },
+    });
+
+    const totalOrderAmount = allOrderItems.reduce(
+      (sum, item) => sum + Number(item.totalPrice),
+      0
+    );
+
+    await tx.order.update({
+      where: { id: orderItem.orderId },
+      data: { amount: totalOrderAmount },
+    });
+
+    return updatedOrderItem;
+  });
+};
+
+// deleteOrderItemService
+export const deleteOrderItemService = async (itemId: string) => {
+  return await prisma.$transaction(async (tx) => {
+    // ১. নির্দিষ্ট অর্ডার আইটেম এবং তার অর্ডার ইনফো খুঁজে আনা
+    const orderItem = await tx.orderItem.findUnique({
+      where: { id: itemId },
+      include: { order: true },
+    });
+
+    if (!orderItem) {
+      throw new Error("Order item not found!");
+    }
+
+    // ২. স্ট্যাটাস চেক (অ্যাপ্রুভড/অ্যাকসেপ্টেড বা রিটার্ন স্ট্যাটাস কিনা)
+    const allowedStatuses = ['ACCEPTED', 'RETURNED'];
+    if (!allowedStatuses.includes(orderItem.order.status)) {
+      throw new Error("You cannot delete items for this order status!");
+    }
+
+    // ৩. ভেরিয়েন্ট আইটেম থাকলে স্টক পুনরায় মূল স্টকে যোগ (Restock) করা
+    if (orderItem.variantItemId) {
+      await tx.variantItem.update({
+        where: { id: orderItem.variantItemId },
+        data: {
+          stock: {
+            increment: orderItem.quantity, // অর্ডারে থাকা পরিমাণ স্টকে ফেরত যাবে
+          },
+        },
+      });
+    }
+
+    // ৪. অর্ডার আইটেমটি টেবিল থেকে সম্পূর্ণ ডিলিট (Hard Delete) করা
+    const deletedItem = await tx.orderItem.delete({
+      where: { id: itemId },
+    });
+
+    // ৫. অর্ডারের বাকি আইটেমগুলো দিয়ে মোট কোয়ান্টিটি এবং মোট অ্যামাউন্ট রিক্যালকুলেট করা
+    const remainingItems = await tx.orderItem.findMany({
+      where: { orderId: orderItem.orderId },
+    });
+
+    const newTotalQuantity = remainingItems.reduce((sum, item) => sum + item.quantity, 0);
+    const newTotalAmount = remainingItems.reduce((sum, item) => sum.add(item.totalPrice), new Prisma.Decimal(0));
+
+    // ৬. মূল অর্ডারের হিসাব আপডেট করা
+    await tx.order.update({
+      where: { id: orderItem.orderId },
+      data: {
+        quantity: newTotalQuantity,
+        amount: newTotalAmount,
+      },
+    });
+
+    return deletedItem;
   });
 };
 
