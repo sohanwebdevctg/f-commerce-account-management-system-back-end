@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { createOrderService, deleteOrderItemService, deleteOrderService, getAllOrderService, getSingleOrderService, updateOrderQuantityService, updateOrderStatusService } from "../services/order.service";
+import { createOrderService, deleteOrderItemService, deleteOrderService, getAllOrderService, getSingleOrderService, updateDamageQuantityService, updateOrderQuantityService, updateOrderStatusService } from "../services/order.service";
 
 // createOrder
 export const createOrder = async (req: Request, res: Response): Promise<void> => {
@@ -156,6 +156,59 @@ export const updateOrderQuantity = async (req: Request, res: Response): Promise<
     return;
   }
 }
+
+// updateDamageQuantity
+export const updateDamageQuantity = async (req: Request, res: Response): Promise<void> => {
+  try{
+    const user = (req as any).user;
+
+    // checking role
+    if (user?.role === "STAFF") {
+      res.status(403).json({
+        success: false,
+        message: "Staff is not authorized to update damage quantity!",
+        statusCode: 403,
+        data: null,
+      });
+      return;
+    }
+
+    const { itemId } = req.params;
+    const { damagedQuantity } = req.body;
+
+    if (damagedQuantity === undefined || damagedQuantity < 0) {
+      res.status(400).json({
+        success: false,
+        message: "Valid damaged quantity is required!",
+        statusCode: 400,
+        data: null,
+      });
+      return;
+    }
+
+    const result = await updateDamageQuantityService(itemId as string, Number(damagedQuantity));
+
+    res.status(200).json({
+      success: true,
+      message: "Damage quantity updated successfully!",
+      statusCode: 200,
+      data: result,
+    });
+    return;
+
+  }catch (error: any) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
+    });
+    return;
+  }
+
+}
+
 
 // deleteOrderItem
 export const deleteOrderItem = async (req: Request, res: Response): Promise<void> => {

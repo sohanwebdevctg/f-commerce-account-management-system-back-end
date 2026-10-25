@@ -332,13 +332,11 @@ export const updateOrderQuantityService = async (itemId: string, type: "incremen
     let newQuantity = orderItem.quantity;
 
     if (type === "increment") {
-      // স্টকের বেশি বাড়ানো যাবে না
       if (currentStock <= 0) {
         throw new Error("Stock is not available for this product!");
       }
       newQuantity += 1;
     } else if (type === "decrement") {
-      // ১ এর নিচে নামানো যাবে না
       if (orderItem.quantity <= 1) {
         throw new Error("Quantity cannot be less than 1!");
       }
@@ -357,7 +355,7 @@ export const updateOrderQuantityService = async (itemId: string, type: "incremen
       },
     });
 
-    // ৬. স্টক অ্যাডজাস্ট করা (increment হলে স্টক কমবে [-1], decrement হলে স্টক বাড়বে [+1])
+    // ৬. স্টক অ্যাডজাস্ট করা 
     const stockChange = type === "increment" ? -1 : 1;
 
     if (orderItem.variantItemId) {
@@ -367,10 +365,10 @@ export const updateOrderQuantityService = async (itemId: string, type: "incremen
       });
     }
 
-    // ৭. অর্ডারের মোট অ্যামাউন্ট (Total Order Amount) রিক্যালকুলেট করে আপডেট করা
+    // ৭. অর্ডারের মোট অ্যামাউন্ট এবং মোট কোয়ান্টিটি রিক্যালকুলেট করে আপডেট করা
     const allOrderItems = await tx.orderItem.findMany({
       where: { orderId: orderItem.orderId },
-      select: { totalPrice: true },
+      select: { totalPrice: true, quantity: true },
     });
 
     const totalOrderAmount = allOrderItems.reduce(
@@ -378,10 +376,73 @@ export const updateOrderQuantityService = async (itemId: string, type: "incremen
       0
     );
 
+    // সব অর্ডার আইটেমের কোয়ান্টিটি যোগ করে মোট কোয়ান্টিটি বের করা
+    const totalOrderQuantity = allOrderItems.reduce(
+      (sum, item) => sum + item.quantity,
+      0
+    );
+
     await tx.order.update({
       where: { id: orderItem.orderId },
-      data: { amount: totalOrderAmount },
+      data: { 
+        amount: totalOrderAmount,
+        quantity: totalOrderQuantity, // এই লাইনটি যুক্ত করা হয়েছে যাতে মেইন অর্ডারের কোয়ান্টিটি আপডেট হয়
+      },
     });
+
+    return updatedOrderItem;
+  });
+};
+
+// updateDamageQuantityService
+export const updateDamageQuantityService = async (itemId: string, newDamagedQuantity: number) => {
+  return await prisma.$transaction(async (tx) => {
+    // ১. অর্ডার আইটেম এবং এর সাথে যুক্ত ভেরিয়েন্ট আইটেম খুঁজে বের করা
+    const orderItem = await tx.orderItem.findUnique({
+      where: { id: itemId },
+      include: {
+        variantItem: {
+          select: { id: true, stock: true },
+        },
+      },
+    });
+
+    if (!orderItem) {
+      throw new Error("Order item not found!");
+    }
+
+    // ২. ভ্যালিডেশন: ড্যামেজ কোয়ান্টিটি কখনোই মোট অর্ডারকৃত কোয়ান্টিটির (`quantity`) বেশি হতে পারবে না
+    if (newDamagedQuantity > orderItem.quantity) {
+      throw new Error("Damaged quantity cannot exceed the ordered quantity!");
+    }
+
+    // ৩. আগের ড্যামেজ এবং নতুন ড্যামেজের পার্থক্য (Difference) বের করা
+    const oldDamagedQuantity = orderItem.damagedQuantity;
+    const damageDiff = newDamagedQuantity - oldDamagedQuantity; 
+    // উদাহরণ: আগে ছিল 3, এখন দিল 2 -> diff = 2 - 3 = -1 (ড্যামেজ 1টি কমল, স্টক 1টি বাড়বে)
+    // উদাহরণ: আগে ছিল 2, এখন দিল 3 -> diff = 3 - 2 = +1 (ড্যামেজ 1টি বাড়ল, স্টক 1টি কমবে)
+
+    // ৪. OrderItem-এর damagedQuantity আপডেট করা
+    const updatedOrderItem = await tx.orderItem.update({
+      where: { id: itemId },
+      data: {
+        damagedQuantity: newDamagedQuantity,
+      },
+    });
+
+    // ৫. স্টক অ্যাডজাস্টমেন্ট (ড্যামেজ বাড়লে স্টক কমবে, ড্যামেজ কমলে স্টক বাড়বে)
+    const stockChange = -damageDiff; 
+
+    if (orderItem.variantItemId && stockChange !== 0) {
+      await tx.variantItem.update({
+        where: { id: orderItem.variantItemId },
+        data: {
+          stock: {
+            increment: stockChange,
+          },
+        },
+      });
+    }
 
     return updatedOrderItem;
   });
