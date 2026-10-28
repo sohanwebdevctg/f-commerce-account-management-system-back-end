@@ -1,34 +1,39 @@
+// Load environment configuration from .env file
 import dotenv from 'dotenv';
 dotenv.config();
+
+// Import express application instance
 import app from './app'
+// Import configured Prisma client instance
 import prisma from './prisma';
 
-// server port
+// Define the port number for the server to listen on
 const PORT = process.env.PORT || 3000;
 
 // Database Connection & Server Start Function
 const startServer = async():Promise<void> => {
   try{
 
-    // prisma connection here
+    // Establish connection to the database using Prisma
     await prisma.$connect();
-    // database connection message here
+    // Log successful database connection message
   console.log("Database Connected Successfully!");
 
-  // server listening port run here
+  // Start the Express server on the specified port
   app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
   });
 
   }catch(error: any){
-    // database error message here
+    // Log the detailed error message if connection fails
     console.log(error.message);
     console.log('DataBase Error');
-    // prisma disconnect here
+    // Disconnect Prisma client safely in case of a failure
     await prisma.$disconnect();
+    // Terminate the process with a failure code
     process.exit(1);
   }
 }
 
-// call the function
+// Invoke the server startup function
 startServer();
