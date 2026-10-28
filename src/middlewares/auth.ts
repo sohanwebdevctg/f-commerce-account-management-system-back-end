@@ -1,16 +1,21 @@
+// Import Express framework types for handling HTTP requests, responses, and middleware execution
 import { NextFunction, Request, Response } from "express";
+// Import jsonwebtoken module and JwtPayload type for token verification and decoding
 import jwt, { JwtPayload } from 'jsonwebtoken';
+// Import the configured Prisma client instance for database queries
 import prisma from "../prisma";
 
+// Middleware function to handle authentication and role-based authorization
 export const auth = (...requiredRoles: string[]) => {
+  // Return the asynchronous middleware handler function
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
 
     try{
 
-      // Extracting only the actual token from the Authorization Header
+      // Extracting the bearer token from the authorization header
       const token = req.headers.authorization?.split(' ')[1];
 
-      // check token
+      // Validate if the token is missing or undefined
       if(!token){
         res.status(401).json({
           success: false,
@@ -21,25 +26,25 @@ export const auth = (...requiredRoles: string[]) => {
         return;
       }
 
-    // JWT Secret Check
+    // Retrieve and validate the JWT secret key from environment variables
     const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret) {
       throw new Error('JWT_SECRET is not defined in environment variables!');
     }
 
-    // decoded the token
+    // Verify the token using the secret key and decode the payload
     const decoded = jwt.verify(token, jwtSecret) as JwtPayload;
 
     const {id, email, role} = decoded;
 
-    // find user
+    // Fetch the user record from the database using the decoded user ID
     const user = await prisma.user.findUnique({
       where:{
         id: id,
       }
     });
 
-    // check user
+    // Check if the user exists in the database
     if(!user){
       res.status(404).json({
         success: false,
@@ -50,7 +55,7 @@ export const auth = (...requiredRoles: string[]) => {
       return;
     }
 
-    // Has the user been soft-deleted?
+    // Check if the user account has been soft-deleted
     if (user.isDeleted) {
       res.status(403).json({
         success: false,
@@ -61,7 +66,7 @@ export const auth = (...requiredRoles: string[]) => {
       return;
     }
 
-    // Is the user's status APPROVED?
+    // Verify if the user account status is currently approved
     if (user.status !== 'APPROVED') {
       res.status(403).json({
         success: false,
@@ -72,7 +77,7 @@ export const auth = (...requiredRoles: string[]) => {
       return;
     }
 
-    // check roles
+    // Validate if the user's role is authorized for the requested route
     if(requiredRoles.length && !requiredRoles.includes(user.role)){
       res.status(403).json({
         success: false,
@@ -83,13 +88,14 @@ export const auth = (...requiredRoles: string[]) => {
       return;
     };
 
-    // Adding a custom user object to the request
+    // Attach the decoded user information to the request object
     (req as any).user = decoded;
 
-    // call next function
+    // Proceed to the next middleware or controller function
     next();
 
     }catch(error:any){
+      // Handle any token verification or unexpected server errors
       res.status(401).json({
         success:false,
         message: 'unauthorize access',

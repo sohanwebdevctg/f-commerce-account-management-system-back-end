@@ -1,7 +1,9 @@
+// Define the Prisma client generator configuration for database operations
 generator client {
   provider = "prisma-client-js"
 }
 
+// Define the database connection provider settings (PostgreSQL)
 datasource db {
   provider = "postgresql"
 }
