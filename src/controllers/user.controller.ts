@@ -1,4 +1,6 @@
+// Import Request and Response types from Express for handling HTTP communication
 import { Request, Response } from "express";
+// Import all user-related service functions from the service layer
 import { createUserService, deleteUserService, getAllUserService, getSingleUserService, getUserProfileService, restoreUserService, updateUserProfileService, updateUserRoleService, updateUserStatusService } from "../services/user.service";
 import fs from "fs";
 import path from "path";

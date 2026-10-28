@@ -1,4 +1,6 @@
+// Import Request and Response types from Express for handling HTTP communication
 import { Request, Response } from "express";
+// Import all order-related service functions from the service layer
 import { createOrderService, deleteOrderItemService, deleteOrderService, getAllOrderService, getSingleOrderService, updateDamageQuantityService, updateOrderQuantityService, updateOrderStatusService } from "../services/order.service";
 
 // createOrder

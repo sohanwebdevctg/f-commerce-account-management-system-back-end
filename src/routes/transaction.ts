@@ -6,7 +6,7 @@ import { createTransaction, getAllTransaction, getDashboardSummary, getSingleTra
 
 const router = Router();
 
-
+// Define route endpoint
 router.post('/', auth('ADMIN', 'MODERATOR', 'STAFF'), createTransaction); // post/api/v1/transactions
 router.get('/', auth('ADMIN', 'MODERATOR', 'STAFF'), getAllTransaction); // get/api/v1/transactions
 router.get( '/summary', auth('ADMIN', 'MODERATOR', 'STAFF'), getDashboardSummary); // get/api/v1/transactions/summary
@@ -16,5 +16,5 @@ router.patch('/:id', auth('ADMIN', 'MODERATOR', 'STAFF'), updateSingleTransactio
 // patch/api/v1/transactions/:id
 
 
-
+// Export the transaction router module to be mounted in the main router
 export const TransactionRoutes = router;

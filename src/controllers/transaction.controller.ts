@@ -1,4 +1,6 @@
+// Import Request and Response types from Express for handling HTTP communication
 import { Request, Response } from "express";
+// Import all transaction-related service functions from the service layer
 import { createTransactionService, getAllTransactionService, getDashboardSummaryService, getSingleTransactionService, updateSingleTransactionService } from "../services/transaction.service";
 
 // createTransaction

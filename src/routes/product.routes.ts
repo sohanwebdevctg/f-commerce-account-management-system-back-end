@@ -6,7 +6,7 @@ import { upload } from '../middlewares/upload';
 
 const router = Router();
 
-
+// Define route endpoint
 // public
 router.get('/public', getAllPublicProduct) // get/api/v1/products/public
 router.get('/public/:id', getSinglePublicProduct) // get/api/v1/products/public/:id
@@ -32,4 +32,6 @@ router.patch('/:productId/variants/:variantId/items/:itemId/status', auth('ADMIN
 router.delete('/:productId/variants/:variantId/items/:itemId', auth('ADMIN', 'MODERATOR'), deleteProductVariantItem); // delete/api/v1/products/:productId/variants/:variantId/items/:itemId
 router.patch('/:productId/variants/:variantId/items/:itemId/restore', auth('ADMIN', 'MODERATOR'), restoreProductVariantItem); // patch/api/v1/products/:productId/variants/:variantId/items/:itemId/restore
 
+
+// Export the product router module to be mounted in the main router
 export const ProductRoutes = router;

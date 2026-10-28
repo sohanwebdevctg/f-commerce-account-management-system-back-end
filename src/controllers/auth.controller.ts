@@ -1,4 +1,6 @@
+// Import Request and Response types from Express for handling HTTP communication
 import { Request, Response } from "express";
+// Import login user service function to handle authentication business logic
 import { loginUserService } from "../services/auth.service";
 
 
@@ -6,10 +8,10 @@ import { loginUserService } from "../services/auth.service";
 export const loginUser = async (req: Request, res: Response): Promise<void> => {
   try{
 
-    // get user information from request body
+  // Extract email and password from the request body
   const {email, password} = req.body;
 
-  // Check if required fields exist
+  // Validate if required fields (email and password) are provided
   if(!email || !password){
     res.status(400).json({
       success: false,
@@ -20,9 +22,10 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // Strong Password Validation Check (Regex)
+    // Define regex for strong password validation (min 8 chars, uppercase, lowercase, number, special char)
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/;
 
+    // Validate password format against the regex pattern
     if(!passwordRegex.test(password)){
       res.status(400).json({
       success: false,
@@ -33,8 +36,10 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // Call authentication service to process user login and generate token
     const result = await loginUserService({email, password});
 
+    // Send successful response with the authentication token and user data
     res.status(200).json({
       success: true,
       statusCode: 200,
@@ -44,6 +49,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
     return;
 
   }catch(error: any){
+    // Handle any unexpected errors during the login process and return server error response
     res.status(500).json({
       success: false,
       statusCode: 500,

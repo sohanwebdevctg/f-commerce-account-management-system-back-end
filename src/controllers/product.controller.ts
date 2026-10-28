@@ -1,6 +1,8 @@
+// Import Request and Response types from Express for handling HTTP communication
 import { Request, Response } from "express";
 import fs from "fs";
 import path from "path";
+// Import all product-related service functions from the service layer
 import { createProductService, deleteProductService, deleteProductVariantItemService, deleteProductVariantService, getAllProductService, getAllPublicProductsService, getSingleProductService, getSinglePublicProductService, restoreProductService, restoreProductVariantItemService, restoreProductVariantService, updateProductService, updateProductStatusService, updateProductVariantItemStatusService, updateProductVariantStatusService } from "../services/product.service";
 
 // Helper Function: ফাইল আপলোডে বা ডাটাবেজে এরর হলে আপলোড হওয়া ইমেজ ডিলিট করার জন্য

@@ -6,7 +6,7 @@ import { upload } from '../middlewares/upload';
 
 const router = Router();
 
-
+// Define route endpoint
 router.post('/', auth('ADMIN'), createUser); // post/api/v1/users
 router.get('/', auth('ADMIN', 'MODERATOR'), getAllUsers); // get/api/v1/users
 router.get('/profile', auth('ADMIN', 'MODERATOR', 'STAFF'), getUserProfile); // get/api/v1/users/profile
@@ -18,9 +18,7 @@ router.delete('/:id', auth("ADMIN"), deleteUser); // delete/api/v1/users/:id
 router.patch('/:id/restore', auth("ADMIN"), restoreUser); // patch/api/v1/users/:id/restore
 
 
-
-
-
+// Export the user router module to be mounted in the main router
 export const UserRoutes = router;
 
 

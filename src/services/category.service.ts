@@ -1,34 +1,36 @@
 import prisma from "../prisma";
 import { CategoryStatus } from "@prisma/client";
 
+// Define TypeScript interface for the category creation payload structure
 export interface ICreateCategoryPayload{
   name: string;
   description?: string;
   status?: CategoryStatus;
   createdBy: string;
-}
+};
 
+// Define TypeScript interface for the get all categories payload structure
 export interface IGetAllCategoriesPayload {
   isDeleted: boolean;
   searchTerm?: string;
-}
+};
 
 
 // Update Category Status Payload Interface
 export interface IUpdateCategoryStatusPayload {
   status: CategoryStatus;
-}
+};
 
-// update category payload
+// Define TypeScript interface for the update category payload structure
 export interface IUpdateCategoryPayload {
   name?: string;
   description?: string;
-}
+};
 
 // create category service
 export const createCategoryService = async (payload: ICreateCategoryPayload) => {
 
-  // Check for duplicate names (case-insensitive)
+  // Check if a category with the same name already exists in the database (case-insensitive check)
   const existingCategory = await prisma.category.findFirst({
     where: {
       name: {
@@ -38,11 +40,12 @@ export const createCategoryService = async (payload: ICreateCategoryPayload) => 
     },
   });
 
+  // Throw an error if a duplicate category name is found
   if (existingCategory) {
     throw new Error("Category with this name already exists!");
   }
 
-  // Creating a new category in the database
+  // Creating a new category record in the database and connecting it to the creator user
   const result = await prisma.category.create({
     data: {
       name: payload.name,
@@ -59,32 +62,33 @@ export const createCategoryService = async (payload: ICreateCategoryPayload) => 
     },
   });
 
+  // Return the result of the created category
   return result;
 
-}
+};
 
 
-// get all category service
+// getAllCategoryService
 export const getAllCategoryService = async (payload: IGetAllCategoriesPayload) => {
 
-  // get payload data
+  // Extract filter parameters from the payload
   const { isDeleted, searchTerm } = payload;
 
-  // sending data
+  // Initialize the where clause conditions object with the isDeleted filter
   const whereConditions: any = { isDeleted };
 
-  // if search data
+  // Check if a search term was provided in the query parameters
   if (searchTerm) {
     const cleanedSearchTerm = searchTerm.trim().toLowerCase();
 
-    // check search data value
+    // Add case-insensitive name filter condition for searching categories
     whereConditions.name = {
       contains: cleanedSearchTerm,
       mode: 'insensitive',
     };
   }
 
-  // Retrieving data from the database
+  // Retrieving category records from the database based on conditions, sorted by creation date descending
   const result = await prisma.category.findMany({
     where: whereConditions,
     orderBy: {
@@ -104,12 +108,14 @@ export const getAllCategoryService = async (payload: IGetAllCategoriesPayload) =
     },
   });
 
+  // Return the fetched category list
   return result;
 
-}
+};
 
 // getAllActiveCategoryService
 export const getAllActiveCategoryService = async () => {
+  // Fetch categories where isDeleted is false and status is ACTIVE, ordered by creation date descending
   const result = await prisma.category.findMany({
     where: {
       isDeleted: false,
@@ -124,16 +130,18 @@ export const getAllActiveCategoryService = async () => {
     },
   });
 
+  // Return the list of active categories
   return result;
 };
 
-// Get All Public Category Service
+// getAllPublicCategoryService
 export const getAllPublicCategoryService = async () => {
+  // Fetch categories where status is ACTIVE, not deleted, and contains at least one active and non-deleted product
   const result = await prisma.category.findMany({
     where: {
       isDeleted: false,
       status: "ACTIVE",
-      // যেসব ক্যাটাগরির আন্ডারে অন্তত একটি active প্রোডাক্ট আছে শুধু সেগুলো আসবে
+      // Filter categories that have at least one active product associated with them
       products: {
         some: {
           isActive: true,
@@ -150,12 +158,14 @@ export const getAllPublicCategoryService = async () => {
     },
   });
 
+  // Return the list of filtered public categories
   return result;
 };
 
 
 // Get Single Category Service
 export const getSingleCategoryService = async (id: string) => {
+  // Fetch the unique category record along with creator details and associated products count
   const result = await prisma.category.findUnique({
     where: { 
       id,
@@ -183,23 +193,27 @@ export const getSingleCategoryService = async (id: string) => {
       },
     },
   });
+  // Return the fetched category object or null if not found
   return result;
 };
 
 // updateCategoryStatusService
 export const updateCategoryStatusService = async (id: string,
   payload: IUpdateCategoryStatusPayload) => {
+    // Perform database update query for the specific category ID
     const result = await prisma.category.update({
       where: { id },
       data: {
         status: payload.status,
       },
     });
+    // Return the updated category record
     return result;
-}
+};
 
-// Soft Delete Category Service
+// deleteCategoryService
 export const deleteCategoryService = async (id: string) => {
+  // Update the category record to mark it as deleted and set the deletion timestamp
   const result = await prisma.category.update({
     where: { id },
     data: {
@@ -207,11 +221,13 @@ export const deleteCategoryService = async (id: string) => {
       deletedAt: new Date(),
     },
   });
+  // Return the updated category record
   return result;
-}
+};
 
 // restoreCategoryService
 export const restoreCategoryService = async (id: string) => {
+  // Update the category record to undo soft-deletion
   const result = await prisma.category.update({
     where: { id },
     data: {
@@ -219,14 +235,15 @@ export const restoreCategoryService = async (id: string) => {
       deletedAt: null,
     },
   });
+  // Return the updated category record
   return result;
-}
+};
 
 
-// update category service
+// updateCategoryService
 export const updateCategoryService = async ( id: string, payload: IUpdateCategoryPayload) => {
 
-  // Checking whether the category is genuine and has not been deleted.
+  // Check whether the category exists and has not been deleted
   const existingCategory = await prisma.category.findUnique({
     where: {
       id,
@@ -234,11 +251,12 @@ export const updateCategoryService = async ( id: string, payload: IUpdateCategor
     },
   });
 
+  // Throw an error if the category is not found or already deleted
   if (!existingCategory) {
     throw new Error("Category not found!");
   }
 
-  // If a new name is submitted, match it against names in other categories (case-insensitive).
+  // If a new name is submitted, check for duplicate names in other categories (case-insensitive)
   if (payload.name) {
     const duplicateCategory = await prisma.category.findFirst({
       where: {
@@ -251,12 +269,13 @@ export const updateCategoryService = async ( id: string, payload: IUpdateCategor
       },
     });
 
+    // Throw an error if another category with the same name already exists
     if (duplicateCategory) {
       throw new Error("Category with this name already exists!");
     }
   }
 
-  // Preparing update data (only the data that has been sent will be updated)
+  // Prepare dynamic update data object (only include fields that were provided)
   const updateData: Record<string, any> = {};
 
   if (payload.name !== undefined) {
@@ -267,7 +286,7 @@ export const updateCategoryService = async ( id: string, payload: IUpdateCategor
     updateData.description = payload.description;
   }
 
-  // Database update
+  // Perform database update query for the specific category ID and select specific fields to return
   const result = await prisma.category.update({
     where: { id },
     data: updateData,
@@ -280,5 +299,6 @@ export const updateCategoryService = async ( id: string, payload: IUpdateCategor
     },
   });
 
+  // Return the updated category record
   return result;
 };
