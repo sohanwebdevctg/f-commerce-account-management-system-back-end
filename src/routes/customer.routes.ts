@@ -1,9 +1,12 @@
+// Import Router from Express to handle customer-related routing
 import { Router } from 'express';
+// Import authentication and role-based authorization middleware
 import { auth } from '../middlewares/auth';
+// Import customer controller functions for handling business logic
 import { createCustomer, getAllCustomer, updateCustomerStatus } from '../controllers/customer.controller';
 
 
-
+// Initialize the Express Router instance for customer module
 const router = Router();
 
 // Define route endpoint

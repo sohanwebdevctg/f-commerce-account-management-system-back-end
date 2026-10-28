@@ -7,8 +7,10 @@ import { createCustomerService, getAllCustomerService, updateCustomerStatusServi
 export const createCustomer = async (req: Request, res: Response): Promise<void> => {
 
   try{
+    // Extract customer details (name, phone, email) from the request body
     const { name, phone, email } = req.body;
 
+    // Validate that the customer name is provided and is a valid non-empty string
     if (!name || typeof name !== "string" || !name.trim()) {
       res.status(400).json({
         success: false,
@@ -19,6 +21,7 @@ export const createCustomer = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    // Validate that the customer phone number is provided and is a valid non-empty string
     if (!phone || typeof phone !== "string" || !phone.trim()) {
       res.status(400).json({
         success: false,
@@ -29,12 +32,14 @@ export const createCustomer = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    // Call the service layer to process customer creation or retrieval
     const result = await createCustomerService({
       name: name.trim(),
       phone: phone.trim(),
       email: email ? email.trim() : undefined,
     });
 
+    // Send a 201 created response with success message and customer data
     res.status(201).json({
       success: true,
       message: "Customer Saved Successfully",
@@ -44,6 +49,7 @@ export const createCustomer = async (req: Request, res: Response): Promise<void>
     return;
 
   }catch (error: any) {
+    // Catch any unexpected errors and return a 500 server error response
     res.status(500).json({
       success: false,
       message: error.message || "Something went wrong",
@@ -53,20 +59,20 @@ export const createCustomer = async (req: Request, res: Response): Promise<void>
     return;
   }
 
-}
+};
 
 // getAllCustomer
 export const getAllCustomer = async (req: Request, res: Response): Promise<void> => {
   try{
 
-  // Receiving the search term and status (type) from the query
+  // Receiving the search term and customer type from the query parameters
   const searchTerm = req.query.searchTerm as string | undefined;
   const type = req.query.type as string | undefined;
 
-  // Sent to the service layer
+  // Send parameters to the service layer for processing database queries
   const result = await getAllCustomerService({ searchTerm, type });
 
-  // Successful response sent
+  // Send a successful response back to the client with the retrieved customer data
   res.status(200).json({
     success: true,
     message: "Customers retrieved successfully",
@@ -76,6 +82,7 @@ export const getAllCustomer = async (req: Request, res: Response): Promise<void>
   return;
 
   }catch (error: any) {
+    // Catch any unexpected errors and return a 500 server error response
     res.status(500).json({
       success: false,
       message: error.message || "Something went wrong",
@@ -84,17 +91,20 @@ export const getAllCustomer = async (req: Request, res: Response): Promise<void>
     });
     return;
   }
-}
+};
 
 // updateCustomerStatus
 export const updateCustomerStatus = async (req: Request, res: Response): Promise<void> => {
   try{
 
+  // Extract customer ID from the request parameters and customerType from the request body
   const { id } = req.params;
     const { customerType } = req.body;
 
+    // Call the service layer to update the customer status in the database
     const result = await updateCustomerStatusService(id as string, { customerType });
 
+    // Send a successful response back to the client with the updated customer status data
     res.status(200).json({
       success: true,
       message: "Customer status updated successfully",
@@ -104,6 +114,7 @@ export const updateCustomerStatus = async (req: Request, res: Response): Promise
     return;
 
   }catch (error: any) {
+    // Catch any unexpected errors and return a 500 server error response
     res.status(500).json({
       success: false,
       message: error.message || "Something went wrong",
@@ -112,4 +123,4 @@ export const updateCustomerStatus = async (req: Request, res: Response): Promise
     });
     return;
   }
-}
+};
