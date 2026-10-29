@@ -1,4 +1,6 @@
+// Import the Prisma Client instance for database interactions
 import prisma from "../prisma";
+// Import the CustomerType enum from Prisma Client for handling customer categories
 import { CustomerType } from "@prisma/client";
 
 // Customer Create Payload Interface definition

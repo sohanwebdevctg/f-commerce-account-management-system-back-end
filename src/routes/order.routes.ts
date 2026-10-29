@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { auth } from '../middlewares/auth';
-import { createOrder, deleteOrder, deleteOrderItem, getAllOrder, getSingleOrder, updateDamageQuantity, updateOrderQuantity, updateOrderStatus } from '../controllers/order.controller';
+import { createOrder, deleteOrder, deleteOrderItem, getAllOrder, getAllOrderSummary, getSingleOrder, updateDamageQuantity, updateOrderQuantity, updateOrderStatus } from '../controllers/order.controller';
 
 
 
@@ -10,6 +10,7 @@ const router = Router();
 // Define route endpoint
 router.post('/', createOrder); // post/api/v1/orders
 router.get('/', auth('ADMIN', 'MODERATOR', 'STAFF'), getAllOrder); // get/api/v1/orders
+router.get('/summary', auth('ADMIN', 'MODERATOR', 'STAFF'), getAllOrderSummary); // get/api/v1/orders/summary
 router.get('/:id', auth('ADMIN', 'MODERATOR', 'STAFF'), getSingleOrder); // get/api/v1/orders/:id
 
 router.patch('/:id/status', auth('ADMIN', 'MODERATOR', 'STAFF'), updateOrderStatus); // patch/api/v1/orders/:id/status

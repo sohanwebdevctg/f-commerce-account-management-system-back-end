@@ -1,7 +1,7 @@
 // Import Request and Response types from Express for handling HTTP communication
 import { Request, Response } from "express";
 // Import all order-related service functions from the service layer
-import { createOrderService, deleteOrderItemService, deleteOrderService, getAllOrderService, getSingleOrderService, updateDamageQuantityService, updateOrderQuantityService, updateOrderStatusService } from "../services/order.service";
+import { createOrderService, deleteOrderItemService, deleteOrderService, getAllOrderService, getAllOrdersSummaryService, getSingleOrderService, updateDamageQuantityService, updateOrderQuantityService, updateOrderStatusService } from "../services/order.service";
 
 // createOrder
 export const createOrder = async (req: Request, res: Response): Promise<void> => {
@@ -46,6 +46,32 @@ export const getAllOrder = async (req: Request, res: Response): Promise<void> =>
     res.status(200).json({
       success: true,
       message: "Orders retrieved successfully",
+      statusCode: 200,
+      data: result,
+    });
+    return;
+
+  }catch (error: any) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message || "Something went wrong",
+      statusCode: 500,
+      data: null,
+    });
+    return;
+  }
+}
+
+// getAllOrderSummary
+export const getAllOrderSummary = async (req: Request, res: Response): Promise<void> => {
+  try{
+    const user = (req as any).user;
+    const result = await getAllOrdersSummaryService(user);
+
+    res.status(200).json({
+      success: true,
+      message: "Orders summary retrieved successfully",
       statusCode: 200,
       data: result,
     });

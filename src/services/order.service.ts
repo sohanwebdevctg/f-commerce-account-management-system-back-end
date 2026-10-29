@@ -155,6 +155,34 @@ export const getAllOrderService = async (payload: IGetAllOrderPayload) => {
   return result;
 };
 
+// getAllOrdersSummaryService
+export const getAllOrdersSummaryService = async (user: { id: string; role: string }) => {
+  // ডাটাবেজ থেকে সব অর্ডার একসাথে ফেচ করা (অথবা স্টাফদের জন্য নির্দিষ্ট ফিল্টার করা চাইলে করা যেতে পারে)
+  const whereCondition = user.role === "STAFF" ? { isRemoved: false } : {};
+
+  const orders = await prisma.order.findMany({
+    where: whereCondition,
+    select: {
+      status: true,
+      isRemoved: true,
+    },
+  });
+
+  // মোট অর্ডার সংখ্যা
+  const totalOrders = orders.length;
+
+  // স্ট্যাটাস অনুযায়ী কাউন্ট হিসাব করা
+  const pendingCount = orders.filter((o: any) => o.status?.toUpperCase() === "PENDING" && !o.isRemoved).length;
+  const acceptedCount = orders.filter((o: any) => o.status?.toUpperCase() === "ACCEPTED" && !o.isRemoved).length;
+  const processingCount = orders.filter((o: any) => o.status?.toUpperCase() === "PROCESSING" && !o.isRemoved).length;
+  const confirmedCount = orders.filter((o: any) => o.status?.toUpperCase() === "CONFIRMED" && !o.isRemoved).length;
+  const deliveredCount = orders.filter((o: any) => o.status?.toUpperCase() === "DELIVERED" && !o.isRemoved).length;
+  const returnedCount = orders.filter((o: any) => o.status?.toUpperCase() === "RETURNED" && !o.isRemoved).length;
+  const cancelledCount = orders.filter((o: any) => o.isRemoved || o.status?.toUpperCase() === "CANCELLED").length;
+
+  return { totalOrders, pendingCount, acceptedCount, processingCount, confirmedCount, deliveredCount, returnedCount, cancelledCount};
+};
+
 
 // getSingleOrderService
 export const getSingleOrderService = async (id: string) => {
