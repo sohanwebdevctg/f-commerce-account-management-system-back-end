@@ -46,7 +46,7 @@ export const getAllTransactionService = async (payload: IGetAllTransactionsPaylo
 
   // Role based check
   if (user.role !== "ADMIN") {
-    andConditions.push({ userId: user.id });
+    andConditions.push({ createdById: user.id });
   }
 
   // Type filter
